@@ -25,11 +25,13 @@ const ROLE_CAPABILITIES: Record<Role, string[]> = {
   ],
   cpo_admin: [
     'Manage your own company only (Module 2)',
-    'Your stations, chargers and operators',
+    'Manage your charging stations (Module 4)',
+    'Your chargers and operators',
     'Your company revenue and analytics',
   ],
   operator: [
-    'Monitor and operate assigned stations (Modules 5–8)',
+    'View stations for your company (Module 4, read-only)',
+    'Monitor and operate assigned chargers (Modules 5–8)',
     'Send OCPP commands to chargers',
     'No company or platform administration',
   ],
@@ -51,18 +53,23 @@ const ROLE_CAPABILITIES: Record<Role, string[]> = {
 const ROLE_LINKS: Record<Role, { href: string; label: string }[]> = {
   super_admin: [
     { href: '/companies', label: 'Companies' },
+    { href: '/stations', label: 'Stations' },
     { href: '/users', label: 'Users' },
     { href: '/profile', label: 'My profile' },
   ],
   cpo_admin: [
     { href: '/my-company', label: 'My company' },
+    { href: '/stations', label: 'Stations' },
     { href: '/users', label: 'Users' },
     { href: '/profile', label: 'My profile' },
   ],
   // No user management for operators: the justification would be operational, and no
   // charger or session exists yet. Revisit in Module 7.
+  // Operator gets read-only station access in Module 4: a station is an administrative
+  // record, and operators operate chargers, which arrive in Module 5.
   operator: [
     { href: '/my-company', label: 'My company' },
+    { href: '/stations', label: 'Stations' },
     { href: '/profile', label: 'My profile' },
   ],
   driver: [

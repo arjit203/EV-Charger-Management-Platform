@@ -69,6 +69,44 @@ export const ROLE_LABELS: Record<Role, string> = {
 };
 
 /* -------------------------------------------------------------------------- */
+/* Module 4 — stations                                                        */
+/* -------------------------------------------------------------------------- */
+
+/** Mirrors backend/src/constants/station.ts. */
+export type StationStatus = 'active' | 'inactive' | 'suspended';
+
+export const STATION_STATUS_LABELS: Record<StationStatus, string> = {
+  active: 'Active — in service',
+  inactive: 'Inactive — temporarily out of service',
+  suspended: 'Suspended — by platform administrator',
+};
+
+/** Mirrors `PublicStation` in backend/src/models/station.model.ts. */
+export interface Station {
+  id: string;
+  companyId: string;
+  name: string;
+  stationCode: string;
+  address: string;
+  city: string;
+  state: string;
+  country: string;
+  postalCode: string | null;
+  latitude: number;
+  longitude: number;
+  status: StationStatus;
+  contactPhone: string | null;
+  openingHours: string | null;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StationPayload {
+  station: Station;
+}
+
+/* -------------------------------------------------------------------------- */
 /* Module 3 — vehicles                                                        */
 /* -------------------------------------------------------------------------- */
 

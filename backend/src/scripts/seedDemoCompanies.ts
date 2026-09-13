@@ -13,6 +13,7 @@ import mongoose from 'mongoose';
 
 import { connectDatabase, disconnectDatabase } from '../config/db';
 import { Company } from '../models/company.model';
+import { Station } from '../models/station.model';
 import { User } from '../models/user.model';
 import { ROLES } from '../constants/roles';
 import { logger } from '../utils/logger';
@@ -29,6 +30,10 @@ const DEMO = [
       { name: 'Livanto CPO Admin', email: 'cpo@livanto.local', role: ROLES.CPO_ADMIN, password: 'Cpo@12345' },
       { name: 'Livanto Operator', email: 'ops@livanto.local', role: ROLES.OPERATOR, password: 'Ops@12345' },
     ],
+    stations: [
+      { name: 'Connaught Place', stationCode: 'DEL-CP-01', address: '1 Connaught Place', city: 'New Delhi', state: 'Delhi', country: 'India', postalCode: '110001', latitude: 28.6315, longitude: 77.2167, openingHours: '24x7' },
+      { name: 'Aerocity Hub', stationCode: 'DEL-AC-02', address: 'Aerocity, IGI Airport', city: 'New Delhi', state: 'Delhi', country: 'India', postalCode: '110037', latitude: 28.5539, longitude: 77.1206, openingHours: '06:00-23:00' },
+    ],
   },
   {
     name: 'Sharma Energy',
@@ -38,6 +43,9 @@ const DEMO = [
     staff: [
       { name: 'Sharma CPO Admin', email: 'cpo@sharma.local', role: ROLES.CPO_ADMIN, password: 'Cpo@12345' },
       { name: 'Sharma Operator', email: 'ops@sharma.local', role: ROLES.OPERATOR, password: 'Ops@12345' },
+    ],
+    stations: [
+      { name: 'Andheri East Plaza', stationCode: 'MUM-AE-01', address: '22 Andheri East', city: 'Mumbai', state: 'Maharashtra', country: 'India', postalCode: '400069', latitude: 19.1136, longitude: 72.8697, openingHours: '24x7' },
     ],
   },
 ] as const;
@@ -80,6 +88,20 @@ async function main(): Promise<void> {
         createdBy: superAdmin._id,
       });
       logger.info(SCOPE, `Created company "${demo.name}".`);
+    }
+
+    for (const site of demo.stations) {
+      const existingStation = await Station.findOne({
+        companyId: company._id,
+        stationCode: site.stationCode,
+      }).select('_id');
+
+      if (existingStation) {
+        logger.info(SCOPE, `  station ${site.stationCode} already exists.`);
+      } else {
+        await Station.create({ ...site, companyId: company._id, status: 'active', createdBy: superAdmin._id });
+        logger.info(SCOPE, `  created station ${site.stationCode} (${site.name})`);
+      }
     }
 
     for (const member of demo.staff) {

@@ -11,3 +11,10 @@ coverage/
 logs/
 
 .DS_Store
+
+# Personal study / interview-preparation notes.
+# Not part of the project — kept locally only.
+docs/learning/
+notes/
+scratch/
+*.private.md

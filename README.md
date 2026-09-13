@@ -80,7 +80,7 @@ against the backend and reports the real MongoDB connection state.
 | 1     | Authentication & RBAC           | ✅ Complete |
 | 2     | Company / CPO Management (MVP)  | ✅ Complete |
 | 3     | User / EV Owner Management      | ✅ Complete |
-| 4     | Station Management              | Not started |
+| 4     | Station Management              | ✅ Complete |
 | 5     | Charger & Connector Management  | Not started |
 | 6     | OCPP Gateway + Simulated Charger| Not started |
 | 7     | Charging Sessions               | Not started |

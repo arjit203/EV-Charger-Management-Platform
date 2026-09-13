@@ -1,0 +1,55 @@
+'use client';
+
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+
+import { RequireAuth } from '@/components/RequireAuth';
+import { StationForm } from '@/components/StationForm';
+import { useAuth } from '@/context/AuthContext';
+import { createStation, type StationInput } from '@/services/station.service';
+
+function CreateStationContent() {
+  const { user } = useAuth();
+  const router = useRouter();
+  const isPlatformAdmin = user?.role === 'super_admin';
+
+  async function handleSubmit(input: StationInput) {
+    const station = await createStation(input);
+    router.replace(`/stations/${station.id}`);
+  }
+
+  return (
+    <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-16">
+      <header>
+        <p className="text-xs font-medium uppercase tracking-widest text-neutral-500">
+          EV-CMS &middot; Module 4
+        </p>
+        <h1 className="mt-1 text-2xl font-semibold">New station</h1>
+        <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
+          {isPlatformAdmin
+            ? 'A site belonging to the company you select.'
+            : 'A site belonging to your company. Stations start active.'}
+        </p>
+      </header>
+
+      <StationForm
+        submitLabel="Create station"
+        showCompanySelector={isPlatformAdmin}
+        onSubmit={handleSubmit}
+        onCancel={() => router.push('/stations')}
+      />
+
+      <Link href="/stations" className="text-sm text-neutral-500 underline underline-offset-4">
+        Back to stations
+      </Link>
+    </main>
+  );
+}
+
+export default function CreateStationPage() {
+  return (
+    <RequireAuth roles={['super_admin', 'cpo_admin']}>
+      <CreateStationContent />
+    </RequireAuth>
+  );
+}
