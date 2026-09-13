@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    /* `node16` is the modern, non-deprecated resolution mode. Because backend/package.json
+       has no `"type": "module"`, TypeScript treats these .ts files as CommonJS — so the
+       emitted JavaScript still uses `require`, and relative imports need no file extension. */
+    "module": "node16",
+    "moduleResolution": "node16",
+    "lib": ["ES2023"],
+
+    "rootDir": "src",
+    "outDir": "dist",
+
+    /* Strictness: turned on from day one so later modules never inherit loose types. */
+    "strict": true,
+    "noImplicitOverride": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": false,
+    "noFallthroughCasesInSwitch": true,
+
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "sourceMap": true,
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}
