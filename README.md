@@ -81,7 +81,7 @@ against the backend and reports the real MongoDB connection state.
 | 2     | Company / CPO Management (MVP)  | ✅ Complete |
 | 3     | User / EV Owner Management      | ✅ Complete |
 | 4     | Station Management              | ✅ Complete |
-| 5     | Charger & Connector Management  | Not started |
+| 5     | Charger & Connector Management  | ✅ Complete |
 | 6     | OCPP Gateway + Simulated Charger| Not started |
 | 7     | Charging Sessions               | Not started |
 | 8     | Real-Time Monitoring            | Not started |

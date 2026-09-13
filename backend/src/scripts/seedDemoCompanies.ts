@@ -14,6 +14,8 @@ import mongoose from 'mongoose';
 import { connectDatabase, disconnectDatabase } from '../config/db';
 import { Company } from '../models/company.model';
 import { Station } from '../models/station.model';
+import { Charger } from '../models/charger.model';
+import { Connector } from '../models/connector.model';
 import { User } from '../models/user.model';
 import { ROLES } from '../constants/roles';
 import { logger } from '../utils/logger';
@@ -31,8 +33,18 @@ const DEMO = [
       { name: 'Livanto Operator', email: 'ops@livanto.local', role: ROLES.OPERATOR, password: 'Ops@12345' },
     ],
     stations: [
-      { name: 'Connaught Place', stationCode: 'DEL-CP-01', address: '1 Connaught Place', city: 'New Delhi', state: 'Delhi', country: 'India', postalCode: '110001', latitude: 28.6315, longitude: 77.2167, openingHours: '24x7' },
-      { name: 'Aerocity Hub', stationCode: 'DEL-AC-02', address: 'Aerocity, IGI Airport', city: 'New Delhi', state: 'Delhi', country: 'India', postalCode: '110037', latitude: 28.5539, longitude: 77.1206, openingHours: '06:00-23:00' },
+      { name: 'Connaught Place', stationCode: 'DEL-CP-01', address: '1 Connaught Place', city: 'New Delhi', state: 'Delhi', country: 'India', postalCode: '110001', latitude: 28.6315, longitude: 77.2167, openingHours: '24x7',
+        chargers: [
+          { chargerCode: '01', name: 'Fast Charger 1', ocppId: 'LIV-DEL-CP-01-A', manufacturer: 'Delta', model: 'DC Wallbox 60', chargerType: 'DC', powerKw: 60, firmwareVersion: '1.4.2',
+            connectors: [ { connectorNumber: 1, connectorType: 'CCS2', powerKw: 60 }, { connectorNumber: 2, connectorType: 'CHAdeMO', powerKw: 50 } ] },
+          { chargerCode: '02', name: 'AC Charger 2', ocppId: 'LIV-DEL-CP-01-B', manufacturer: 'Exicom', model: 'AC Smart 22', chargerType: 'AC', powerKw: 22, firmwareVersion: '2.0.1',
+            connectors: [ { connectorNumber: 1, connectorType: 'Type2', powerKw: 22 } ] },
+        ] },
+      { name: 'Aerocity Hub', stationCode: 'DEL-AC-02', address: 'Aerocity, IGI Airport', city: 'New Delhi', state: 'Delhi', country: 'India', postalCode: '110037', latitude: 28.5539, longitude: 77.1206, openingHours: '06:00-23:00',
+        chargers: [
+          { chargerCode: '01', name: 'Highway Fast 1', ocppId: 'LIV-DEL-AC-02-A', manufacturer: 'ABB', model: 'Terra 124', chargerType: 'DC', powerKw: 120, firmwareVersion: '3.1.0',
+            connectors: [ { connectorNumber: 1, connectorType: 'CCS2', powerKw: 120 } ] },
+        ] },
     ],
   },
   {
@@ -45,7 +57,11 @@ const DEMO = [
       { name: 'Sharma Operator', email: 'ops@sharma.local', role: ROLES.OPERATOR, password: 'Ops@12345' },
     ],
     stations: [
-      { name: 'Andheri East Plaza', stationCode: 'MUM-AE-01', address: '22 Andheri East', city: 'Mumbai', state: 'Maharashtra', country: 'India', postalCode: '400069', latitude: 19.1136, longitude: 72.8697, openingHours: '24x7' },
+      { name: 'Andheri East Plaza', stationCode: 'MUM-AE-01', address: '22 Andheri East', city: 'Mumbai', state: 'Maharashtra', country: 'India', postalCode: '400069', latitude: 19.1136, longitude: 72.8697, openingHours: '24x7',
+        chargers: [
+          { chargerCode: '01', name: 'Plaza DC 1', ocppId: 'SHA-MUM-AE-01-A', manufacturer: 'Delta', model: 'DC Wallbox 60', chargerType: 'DC', powerKw: 60, firmwareVersion: '1.4.2',
+            connectors: [ { connectorNumber: 1, connectorType: 'CCS2', powerKw: 60 } ] },
+        ] },
     ],
   },
 ] as const;
@@ -96,11 +112,41 @@ async function main(): Promise<void> {
         stationCode: site.stationCode,
       }).select('_id');
 
-      if (existingStation) {
-        logger.info(SCOPE, `  station ${site.stationCode} already exists.`);
-      } else {
-        await Station.create({ ...site, companyId: company._id, status: 'active', createdBy: superAdmin._id });
-        logger.info(SCOPE, `  created station ${site.stationCode} (${site.name})`);
+      const { chargers: siteChargers, ...stationFields } = site;
+
+      const station =
+        existingStation ??
+        (await Station.create({ ...stationFields, companyId: company._id, status: 'active', createdBy: superAdmin._id }));
+
+      logger.info(
+        SCOPE,
+        existingStation
+          ? `  station ${site.stationCode} already exists.`
+          : `  created station ${site.stationCode} (${site.name})`,
+      );
+
+      for (const unit of siteChargers) {
+        const { connectors: unitConnectors, ...chargerFields } = unit;
+
+        const existingCharger = await Charger.findOne({ ocppId: unit.ocppId }).select('_id');
+        if (existingCharger) {
+          logger.info(SCOPE, `    charger ${unit.ocppId} already exists.`);
+          continue;
+        }
+
+        const charger = await Charger.create({
+          ...chargerFields,
+          stationId: station._id,
+          companyId: company._id, // copied from the station's company, never from input
+          status: 'available',
+          createdBy: superAdmin._id,
+        });
+        logger.info(SCOPE, `    created charger ${unit.ocppId} (${unit.name})`);
+
+        for (const plug of unitConnectors) {
+          await Connector.create({ ...plug, chargerId: charger._id, status: 'available' });
+        }
+        logger.info(SCOPE, `      added ${unitConnectors.length} connector(s)`);
       }
     }
 

@@ -69,6 +69,72 @@ export const ROLE_LABELS: Record<Role, string> = {
 };
 
 /* -------------------------------------------------------------------------- */
+/* Module 5 — chargers & connectors                                           */
+/* -------------------------------------------------------------------------- */
+
+/** AC passes mains power to the car's onboard charger; DC converts it and feeds the battery. */
+export type ChargerType = 'AC' | 'DC';
+
+export type ChargerStatus = 'available' | 'unavailable' | 'faulted' | 'maintenance';
+
+/** Note: NOT OCPP's PascalCase names — the gateway translates those in Module 6. */
+export type ConnectorStatus = 'available' | 'occupied' | 'faulted' | 'unavailable';
+
+export const CHARGER_STATUS_LABELS: Record<ChargerStatus, string> = {
+  available: 'Available — in service',
+  unavailable: 'Unavailable — out of service',
+  faulted: 'Faulted — hardware fault reported',
+  maintenance: 'Maintenance — planned servicing',
+};
+
+export const CONNECTOR_STATUS_LABELS: Record<ConnectorStatus, string> = {
+  available: 'Available',
+  occupied: 'Occupied',
+  faulted: 'Faulted',
+  unavailable: 'Unavailable',
+};
+
+/** Mirrors `PublicCharger` in backend/src/models/charger.model.ts. */
+export interface Charger {
+  id: string;
+  stationId: string;
+  companyId: string;
+  name: string;
+  chargerCode: string;
+  ocppId: string;
+  manufacturer: string;
+  model: string;
+  chargerType: ChargerType;
+  powerKw: number;
+  firmwareVersion: string | null;
+  status: ChargerStatus;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Mirrors `PublicConnector` in backend/src/models/connector.model.ts. */
+export interface Connector {
+  id: string;
+  chargerId: string;
+  connectorNumber: number;
+  connectorType: ConnectorType;
+  powerKw: number;
+  status: ConnectorStatus;
+  errorCode: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ChargerPayload {
+  charger: Charger;
+}
+
+export interface ConnectorPayload {
+  connector: Connector;
+}
+
+/* -------------------------------------------------------------------------- */
 /* Module 4 — stations                                                        */
 /* -------------------------------------------------------------------------- */
 

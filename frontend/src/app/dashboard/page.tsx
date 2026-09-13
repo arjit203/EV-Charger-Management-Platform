@@ -26,12 +26,14 @@ const ROLE_CAPABILITIES: Record<Role, string[]> = {
   cpo_admin: [
     'Manage your own company only (Module 2)',
     'Manage your charging stations (Module 4)',
-    'Your chargers and operators',
+    'Manage chargers and connectors (Module 5)',
+    'Your operators',
     'Your company revenue and analytics',
   ],
   operator: [
     'View stations for your company (Module 4, read-only)',
-    'Monitor and operate assigned chargers (Modules 5–8)',
+    'View chargers and connectors (Module 5, read-only)',
+    'Monitor and operate chargers (Modules 6-8)',
     'Send OCPP commands to chargers',
     'No company or platform administration',
   ],
@@ -54,22 +56,24 @@ const ROLE_LINKS: Record<Role, { href: string; label: string }[]> = {
   super_admin: [
     { href: '/companies', label: 'Companies' },
     { href: '/stations', label: 'Stations' },
+    { href: '/chargers', label: 'Chargers' },
     { href: '/users', label: 'Users' },
     { href: '/profile', label: 'My profile' },
   ],
   cpo_admin: [
     { href: '/my-company', label: 'My company' },
     { href: '/stations', label: 'Stations' },
+    { href: '/chargers', label: 'Chargers' },
     { href: '/users', label: 'Users' },
     { href: '/profile', label: 'My profile' },
   ],
-  // No user management for operators: the justification would be operational, and no
-  // charger or session exists yet. Revisit in Module 7.
-  // Operator gets read-only station access in Module 4: a station is an administrative
-  // record, and operators operate chargers, which arrive in Module 5.
+  // Operator is read-only everywhere so far: no user management (Module 3), and read-only
+  // stations and chargers (Modules 4-5). A real write need first appears with OCPP commands
+  // in Module 6 and monitoring in Module 8.
   operator: [
     { href: '/my-company', label: 'My company' },
     { href: '/stations', label: 'Stations' },
+    { href: '/chargers', label: 'Chargers' },
     { href: '/profile', label: 'My profile' },
   ],
   driver: [

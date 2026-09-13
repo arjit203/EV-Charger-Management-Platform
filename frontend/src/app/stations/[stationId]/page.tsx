@@ -3,9 +3,10 @@
 /**
  * Station detail.
  *
- * Deliberately shows no charger or connector information — that is Module 5. The status
- * controls reflect the backend's permission split: a cpo_admin can move a station between
- * active and inactive, but only a super_admin can apply or clear `suspended`.
+ * Links through to the station's chargers (Module 5) rather than embedding them, since a
+ * charger has its own detail page with its connectors. The status controls reflect the
+ * backend's permission split: a cpo_admin can move a station between active and inactive,
+ * but only a super_admin can apply or clear `suspended`.
  */
 
 import { useCallback, useState } from 'react';
@@ -182,9 +183,24 @@ function StationDetails({
         )}
       </section>
 
-      <p className="text-xs text-neutral-500">
-        Chargers and connectors for this station arrive in Module 5.
-      </p>
+      <section className="rounded-xl border border-neutral-200 p-5 dark:border-neutral-800">
+        <h2 className="text-sm font-semibold">Chargers at this station</h2>
+        <p className="mt-1 text-xs text-neutral-500">
+          The physical machines installed here, each with its own connectors.
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Link href={`/chargers?stationId=${station.id}`}
+            className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm font-medium transition-colors hover:bg-neutral-500/10 dark:border-neutral-700">
+            View chargers
+          </Link>
+          {canManage ? (
+            <Link href={`/chargers/new?stationId=${station.id}`}
+              className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm font-medium transition-colors hover:bg-neutral-500/10 dark:border-neutral-700">
+              Add charger
+            </Link>
+          ) : null}
+        </div>
+      </section>
     </>
   );
 }
