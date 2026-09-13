@@ -100,7 +100,7 @@ with no active price cannot sell electricity.
 | 8     | Real-Time Monitoring            | ✅ Complete |
 | 9     | Tariff / Pricing                | ✅ Complete |
 | 10    | Wallet & Payments               | ✅ Complete |
-| 11    | Complaints / Support            | Not started |
+| 11    | Complaints / Support            | ✅ Complete |
 | 12    | Notifications                   | Not started |
 | 13    | Analytics & Dashboards          | Not started |
 | 14    | Charging Station Map            | Not started |

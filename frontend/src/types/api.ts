@@ -556,3 +556,78 @@ export interface VerifyRechargePayload {
 export interface PaymentPayload {
   payment: PaymentTransaction;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Module 11 — complaints                                                     */
+/* -------------------------------------------------------------------------- */
+
+export type ComplaintCategory =
+  | 'charger_issue'
+  | 'session_issue'
+  | 'payment_issue'
+  | 'station_issue'
+  | 'account_issue'
+  | 'other';
+
+export type ComplaintPriority = 'low' | 'medium' | 'high';
+export type ComplaintStatus = 'open' | 'in_progress' | 'resolved' | 'closed';
+
+/**
+ * A support ticket.
+ *
+ * The resource ids are DERIVED server-side from a single anchor (a session or a charger) — a
+ * client never sends `stationId`, `connectorId` or `companyId`, which is what makes a mismatched
+ * set of references impossible to express rather than merely rejected.
+ *
+ * `companyId: null` means platform-level — an account problem belonging to no operator, visible
+ * only to super_admin.
+ */
+export interface Complaint {
+  id: string;
+  userId: string;
+  companyId: string | null;
+  chargingSessionId: string | null;
+  chargerId: string | null;
+  stationId: string | null;
+  connectorId: string | null;
+  category: ComplaintCategory;
+  /** Immutable after creation — a ticket is an audit record. */
+  subject: string;
+  /** Immutable after creation. */
+  description: string;
+  priority: ComplaintPriority;
+  status: ComplaintStatus;
+  resolution: string | null;
+  resolvedBy: string | null;
+  resolvedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * The live state of a disputed session, derived at READ time.
+ *
+ * Never copied onto the complaint: staff need to know whether a charge is outstanding *now*, not
+ * what it was when the ticket was filed. Read-only — this module can see payment state and has
+ * no authority over it.
+ */
+export interface DisputedSession {
+  sessionId: string;
+  status: SessionStatus;
+  paymentStatus: 'unpaid' | 'paid';
+  energyConsumedKwh: number;
+  amountPaise: number | null;
+  appliedPricePerKwhPaise: number | null;
+  startedAt: string | null;
+  endedAt: string | null;
+}
+
+export interface ComplaintPayload {
+  complaint: Complaint;
+}
+
+export interface ComplaintDetailPayload {
+  complaint: Complaint;
+  /** Null unless the complaint is anchored to a charging session. */
+  session: DisputedSession | null;
+}

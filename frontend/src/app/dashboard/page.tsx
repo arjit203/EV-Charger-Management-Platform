@@ -60,6 +60,7 @@ const ROLE_LINKS: Record<Role, { href: string; label: string }[]> = {
     { href: '/chargers', label: 'Chargers' },
     { href: '/sessions', label: 'Charging sessions' },
     { href: '/tariffs', label: 'Tariffs' },
+    { href: '/complaints', label: 'Support' },
     { href: '/users', label: 'Users' },
     { href: '/profile', label: 'My profile' },
   ],
@@ -70,6 +71,7 @@ const ROLE_LINKS: Record<Role, { href: string; label: string }[]> = {
     { href: '/chargers', label: 'Chargers' },
     { href: '/sessions', label: 'Charging sessions' },
     { href: '/tariffs', label: 'Tariffs' },
+    { href: '/complaints', label: 'Support' },
     { href: '/users', label: 'Users' },
     { href: '/profile', label: 'My profile' },
   ],
@@ -83,6 +85,7 @@ const ROLE_LINKS: Record<Role, { href: string; label: string }[]> = {
     { href: '/chargers', label: 'Chargers' },
     { href: '/sessions', label: 'Charging sessions' },
     { href: '/tariffs', label: 'Tariffs' },
+    { href: '/complaints', label: 'Support' },
     { href: '/profile', label: 'My profile' },
   ],
   // Module 7 is where the driver stops being a spectator: starting a charge is the first
@@ -90,6 +93,7 @@ const ROLE_LINKS: Record<Role, { href: string; label: string }[]> = {
   driver: [
     { href: '/charge', label: 'Start charging' },
     { href: '/wallet', label: 'Wallet' },
+    { href: '/complaints', label: 'Support' },
     { href: '/sessions', label: 'My charging' },
     { href: '/my-vehicles', label: 'My vehicles' },
     { href: '/profile', label: 'My profile' },

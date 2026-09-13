@@ -273,6 +273,20 @@ function SessionDetail({
         </button>
       )}
 
+      {/*
+        Where a dispute actually starts. The session id goes in the URL as the complaint's
+        ANCHOR, and the server derives the charger, station and company from it — the driver
+        never selects them, so a mismatched set cannot be submitted.
+      */}
+      {!isOpen && (
+        <Link
+          href={`/complaints/new?sessionId=${session.id}`}
+          className="inline-block text-sm text-neutral-500 underline underline-offset-4"
+        >
+          Something wrong with this charge? Report a problem
+        </Link>
+      )}
+
       {session.status === 'stopping' && (
         <p className="text-sm text-neutral-500">
           Stop sent. The session completes when the charger reports its final meter reading.
