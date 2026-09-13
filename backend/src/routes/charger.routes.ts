@@ -4,9 +4,15 @@ import {
   createCharger,
   getChargerById,
   listChargers,
+  regenerateChargerToken,
   updateCharger,
   updateChargerStatus,
 } from '../controllers/charger.controller';
+import {
+  getConnectionState,
+  remoteStart,
+  remoteStop,
+} from '../controllers/chargerCommand.controller';
 import {
   createConnector,
   getConnector,
@@ -24,6 +30,7 @@ import {
   chargerStatusSchema,
   createChargerSchema,
   listChargersQuerySchema,
+  remoteStartSchema,
   updateChargerSchema,
 } from '../validators/charger.validator';
 import {
@@ -99,12 +106,65 @@ router.patch(
   updateConnectorStatus,
 );
 
+/* ------------------------- OCPP commands (Module 6) ------------------------ */
+/*
+ * These are the Module 6 TEST SURFACE for driving the gateway. Module 7 replaces them with
+ * the real driver-facing start/stop, which also creates a ChargingSession, applies a tariff
+ * and debits a wallet — none of which happens here.
+ *
+ * `operator` is included, and this is the first WRITE they have been given in the whole
+ * project. Modules 3, 4 and 5 all deferred operator write access "until a concrete
+ * operational trigger exists" — operating a charger is exactly that trigger, and it is
+ * literally the role's job. Company scoping still applies: the service resolves the charger
+ * through `assertChargerInScope`, so an operator cannot command another company's hardware.
+ */
+
+router.post(
+  '/:chargerId/commands/remote-start',
+  authorize(...READ_ROLES),
+  requireActiveCompany,
+  validateParams(chargerIdParamSchema),
+  validateBody(remoteStartSchema),
+  remoteStart,
+);
+
+router.post(
+  '/:chargerId/commands/remote-stop',
+  authorize(...READ_ROLES),
+  requireActiveCompany,
+  validateParams(chargerIdParamSchema),
+  remoteStop,
+);
+
+/** Live gateway state — what the registry believes right now, not the database mirror. */
+router.get(
+  '/:chargerId/connection',
+  authorize(...READ_ROLES),
+  requireActiveCompany,
+  validateParams(chargerIdParamSchema),
+  getConnectionState,
+);
+
+/**
+ * Issue a new OCPP connection token. The plaintext is returned ONCE and never again, since
+ * only a bcrypt hash is stored — the same contract as an API key.
+ */
+router.post(
+  '/:chargerId/token',
+  authorize(...WRITE_ROLES),
+  requireActiveCompany,
+  validateParams(chargerIdParamSchema),
+  regenerateChargerToken,
+);
+
 /* -------------------------------- chargers -------------------------------- */
 
 /**
- * `operator` is READ-ONLY throughout, consistent with Modules 3 and 4. There is no charger
- * *operation* to perform yet — remote commands arrive in Module 6 and monitoring in Module 8,
- * and that is where a real write need would first appear.
+ * `operator` is read-only for CONFIGURATION — they may view chargers and connectors but not
+ * create, edit or re-label them. That remains the Module 5 position.
+ *
+ * What changed in Module 6 is OPERATION: operators can now send remote start/stop above.
+ * Configuring hardware is administration; commanding it is the operator's actual job.
  */
 router.get(
   '/',

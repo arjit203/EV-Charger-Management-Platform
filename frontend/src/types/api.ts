@@ -78,7 +78,15 @@ export type ChargerType = 'AC' | 'DC';
 export type ChargerStatus = 'available' | 'unavailable' | 'faulted' | 'maintenance';
 
 /** Note: NOT OCPP's PascalCase names — the gateway translates those in Module 6. */
-export type ConnectorStatus = 'available' | 'occupied' | 'faulted' | 'unavailable';
+export type ConnectorStatus =
+  | 'available'
+  | 'occupied'
+  | 'faulted'
+  | 'unavailable'
+  // Added in Module 6 — reported by the hardware over OCPP.
+  | 'preparing'
+  | 'charging'
+  | 'finishing';
 
 export const CHARGER_STATUS_LABELS: Record<ChargerStatus, string> = {
   available: 'Available — in service',
@@ -92,6 +100,9 @@ export const CONNECTOR_STATUS_LABELS: Record<ConnectorStatus, string> = {
   occupied: 'Occupied',
   faulted: 'Faulted',
   unavailable: 'Unavailable',
+  preparing: 'Preparing',
+  charging: 'Charging',
+  finishing: 'Finishing',
 };
 
 /** Mirrors `PublicCharger` in backend/src/models/charger.model.ts. */
@@ -108,9 +119,28 @@ export interface Charger {
   powerKw: number;
   firmwareVersion: string | null;
   status: ChargerStatus;
+  /**
+   * Module 6 — CONNECTIVITY, written only by the OCPP gateway. Distinct from `status`, which
+   * is administrative, and from each connector's status, which is operational.
+   */
+  isOnline: boolean;
+  lastHeartbeatAt: string | null;
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+}
+
+/** Live gateway state (Module 6) — the registry's view right now, not the database mirror. */
+export interface ChargerConnection {
+  ocppId: string;
+  connected: boolean;
+  connectedAt: string | null;
+  lastHeartbeatAt: string | null;
+  transaction: {
+    transactionId: number;
+    connectorNumber: number;
+    startedAt: string;
+  } | null;
 }
 
 /** Mirrors `PublicConnector` in backend/src/models/connector.model.ts. */

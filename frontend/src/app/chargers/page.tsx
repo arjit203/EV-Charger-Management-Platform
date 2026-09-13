@@ -40,7 +40,10 @@ function ChargerRow({ charger }: { charger: Charger }) {
           {charger.manufacturer} {charger.model}
         </p>
       </div>
-      <StatusBadge tone={chargerStatusTone(charger.status)} label={charger.status} />
+      <div className="flex items-center gap-2">
+        <StatusBadge tone={charger.isOnline ? 'good' : 'neutral'} label={charger.isOnline ? 'online' : 'offline'} />
+        <StatusBadge tone={chargerStatusTone(charger.status)} label={charger.status} />
+      </div>
     </Link>
   );
 }

@@ -22,13 +22,36 @@ function requireUser(req: Request) {
   return req.user;
 }
 
-/** POST /chargers — the station in the body is verified against the caller's company scope. */
+/**
+ * POST /chargers — the station in the body is verified against the caller's company scope.
+ *
+ * The response includes `authToken` exactly once. It is the charger's OCPP connection secret
+ * and is stored hashed, so it can never be retrieved again — only regenerated.
+ */
 export const createCharger = asyncHandler(async (req: Request, res: Response) => {
-  const charger = await chargerService.createCharger(
+  const { charger, authToken } = await chargerService.createCharger(
     requireUser(req),
     req.body as CreateChargerInput,
   );
-  sendSuccess(res, { charger }, 'Charger created successfully', 201);
+  sendSuccess(
+    res,
+    { charger, authToken },
+    'Charger created. Save the connection token now — it cannot be shown again.',
+    201,
+  );
+});
+
+/** POST /chargers/:chargerId/token — issue a new connection token, invalidating the old one. */
+export const regenerateChargerToken = asyncHandler(async (req: Request, res: Response) => {
+  const { charger, authToken } = await chargerService.regenerateChargerToken(
+    requireUser(req),
+    String(req.params.chargerId),
+  );
+  sendSuccess(
+    res,
+    { charger, authToken },
+    'New connection token issued. Save it now — it cannot be shown again.',
+  );
 });
 
 /** GET /chargers */

@@ -13,8 +13,10 @@ function CreateChargerContent() {
   const defaultStationId = searchParams.get('stationId') ?? undefined;
 
   async function handleSubmit(input: ChargerInput) {
-    const charger = await createCharger(input);
-    router.replace(`/chargers/${charger.id}`);
+    const { charger, authToken } = await createCharger(input);
+    // The OCPP token is returned exactly once. Carry it in the URL so the detail page can
+    // show it immediately — after this it can only be regenerated, never retrieved.
+    router.replace(`/chargers/${charger.id}?newToken=${encodeURIComponent(authToken)}`);
   }
 
   return (

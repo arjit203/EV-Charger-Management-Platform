@@ -7,11 +7,12 @@
  * isolation — and because the nested API shape is what makes the server verify the
  * Company → Station → Charger chain on every connector call.
  *
- * No OCPP commands, no live data, no meter charts — those arrive in Modules 6 and 8.
+ * Module 6 adds the OCPP section below: live connectivity and remote start/stop. There is
+ * still no live streaming or meter charting — those need Socket.IO, which is Module 8.
  */
 
 import { useCallback, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
 import { ChargerForm } from '@/components/ChargerForm';
@@ -24,7 +25,11 @@ import { toMessage } from '@/lib/formatApiError';
 import {
   createConnector,
   getCharger,
+  getChargerConnection,
   listConnectors,
+  regenerateChargerToken,
+  remoteStart,
+  remoteStop,
   setChargerStatus,
   setConnectorStatus,
   updateCharger,
@@ -42,6 +47,11 @@ import {
 } from '@/types/api';
 
 const CHARGER_STATUSES: ChargerStatus[] = ['available', 'unavailable', 'faulted', 'maintenance'];
+/**
+ * Only the ADMINISTRATIVE statuses are offered for manual selection. `preparing`,
+ * `charging` and `finishing` are reported by the hardware over OCPP, and letting an admin
+ * set them by hand would mean the UI can lie about what the machine is physically doing.
+ */
 const CONNECTOR_STATUSES: ConnectorStatus[] = ['available', 'occupied', 'faulted', 'unavailable'];
 
 function chargerTone(status: ChargerStatus) {
@@ -55,6 +65,171 @@ function connectorTone(status: ConnectorStatus) {
   if (status === 'faulted') return 'bad' as const;
   if (status === 'occupied') return 'warn' as const;
   return 'neutral' as const;
+}
+
+/* ----------------------------------------------------------------- OCPP -- */
+
+/**
+ * Live connectivity and the Module 6 remote commands.
+ *
+ * Values do NOT update by themselves — this module has no browser real-time channel, so you
+ * press Refresh. Module 8 adds Socket.IO for that. The two real-time systems stay separate:
+ * the charger speaks raw WebSocket/OCPP to the gateway, the browser will speak Socket.IO to
+ * the backend.
+ */
+function OcppSection({ charger, canCommand }: { charger: Charger; canCommand: boolean }) {
+  const searchParams = useSearchParams();
+  const load = useCallback(() => getChargerConnection(charger.id), [charger.id]);
+  const { state, reload } = useAsyncData(load);
+
+  // Shown once after creation, handed over in the URL by the create page.
+  const [issuedToken, setIssuedToken] = useState<string | null>(searchParams.get('newToken'));
+  const [idTag, setIdTag] = useState('TESTTAG-0001');
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isBusy, setIsBusy] = useState(false);
+
+  const connection = state.status === 'ok' ? state.data : null;
+
+  async function run(action: 'start' | 'stop') {
+    setIsBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const result =
+        action === 'start' ? await remoteStart(charger.id, 1, idTag) : await remoteStop(charger.id);
+      setMessage(result.accepted ? 'Charger accepted the command.' : 'Charger rejected the command.');
+      await reload();
+    } catch (caught) {
+      setError(toMessage(caught));
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function issueToken() {
+    setIsBusy(true);
+    setError(null);
+    try {
+      const { authToken } = await regenerateChargerToken(charger.id);
+      setIssuedToken(authToken);
+    } catch (caught) {
+      setError(toMessage(caught));
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  return (
+    <section className="rounded-xl border border-neutral-200 p-5 dark:border-neutral-800">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold">OCPP connection</h2>
+          <p className="mt-0.5 text-xs text-neutral-500">
+            Whether the physical charger is currently talking to the gateway.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <StatusBadge
+            tone={charger.isOnline ? 'good' : 'neutral'}
+            label={charger.isOnline ? 'online' : 'offline'}
+          />
+          <button
+            type="button"
+            onClick={() => void reload()}
+            className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-medium transition-colors hover:bg-neutral-500/10 dark:border-neutral-700"
+          >
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      {issuedToken ? (
+        <div className="mt-4 rounded-lg bg-amber-500/10 px-3 py-2">
+          <p className="text-xs font-medium text-amber-800 dark:text-amber-300">
+            Connection token — copy it now, it cannot be shown again.
+          </p>
+          <code className="mt-1 block break-all font-mono text-xs">{issuedToken}</code>
+          <p className="mt-2 text-xs text-amber-800 dark:text-amber-300">
+            Start the simulator with{' '}
+            <code className="font-mono">
+              npm run dev -- --charger={charger.ocppId} --token=&lt;token&gt;
+            </code>
+          </p>
+        </div>
+      ) : null}
+
+      {error ? (
+        <p role="alert" className="mt-3 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-400">
+          {error}
+        </p>
+      ) : null}
+      {message ? (
+        <p className="mt-3 rounded-lg bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-400">
+          {message}
+        </p>
+      ) : null}
+
+      <dl className="mt-4 grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">
+        <dt className="text-neutral-500">Gateway</dt>
+        <dd className="text-xs">{connection?.connected ? 'connected' : 'not connected'}</dd>
+        <dt className="text-neutral-500">Last heartbeat</dt>
+        <dd className="text-xs">
+          {charger.lastHeartbeatAt ? new Date(charger.lastHeartbeatAt).toLocaleString() : 'never'}
+        </dd>
+        <dt className="text-neutral-500">Transaction</dt>
+        <dd className="text-xs">
+          {connection?.transaction
+            ? `#${connection.transaction.transactionId} on connector ${connection.transaction.connectorNumber}`
+            : 'none in progress'}
+        </dd>
+      </dl>
+
+      {canCommand ? (
+        <div className="mt-4 space-y-3 border-t border-neutral-200 pt-4 dark:border-neutral-800">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="min-w-[12rem] flex-1">
+              <FormField
+                label="idTag"
+                name="idTag"
+                hint="Stands in for an RFID card."
+                value={idTag}
+                onChange={(e) => setIdTag(e.target.value)}
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => void run('start')}
+              disabled={isBusy || !charger.isOnline}
+              className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+            >
+              Remote start
+            </button>
+            <button
+              type="button"
+              onClick={() => void run('stop')}
+              disabled={isBusy || !charger.isOnline}
+              className="rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+            >
+              Remote stop
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => void issueToken()}
+            disabled={isBusy}
+            className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-medium transition-colors hover:bg-neutral-500/10 disabled:opacity-50 dark:border-neutral-700"
+          >
+            Regenerate connection token
+          </button>
+          <p className="text-xs text-neutral-500">
+            These are the Module 6 test surface. The driver-facing start/stop, which also creates a
+            charging session, arrives in Module 7.
+          </p>
+        </div>
+      ) : null}
+    </section>
+  );
 }
 
 /* ----------------------------------------------------------- connectors -- */
@@ -218,6 +393,9 @@ function ChargerDetails({ charger, onChanged }: { charger: Charger; onChanged: (
   const [isBusy, setIsBusy] = useState(false);
 
   const canManage = user?.role === 'super_admin' || user?.role === 'cpo_admin';
+  // Operators may COMMAND a charger even though they cannot reconfigure it — Module 6 is
+  // where their first write lands, because operating hardware is the role's actual job.
+  const canCommand = canManage || user?.role === 'operator';
 
   async function changeStatus(status: ChargerStatus) {
     setIsBusy(true);
@@ -328,6 +506,8 @@ function ChargerDetails({ charger, onChanged }: { charger: Charger; onChanged: (
           </dl>
         )}
       </section>
+
+      <OcppSection charger={charger} canCommand={canCommand} />
 
       <ConnectorSection chargerId={charger.id} canManage={canManage} />
     </>

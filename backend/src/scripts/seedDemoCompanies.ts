@@ -19,6 +19,7 @@ import { Connector } from '../models/connector.model';
 import { User } from '../models/user.model';
 import { ROLES } from '../constants/roles';
 import { logger } from '../utils/logger';
+import { generateChargerToken, hashChargerToken } from '../utils/chargerToken';
 
 const SCOPE = 'seed:demo';
 
@@ -134,14 +135,24 @@ async function main(): Promise<void> {
           continue;
         }
 
+        // Module 6: every charger needs an OCPP connection token. It is stored hashed, so
+        // this is the only moment the plaintext exists — print it for the simulator.
+        const authToken = generateChargerToken();
+
         const charger = await Charger.create({
           ...chargerFields,
           stationId: station._id,
           companyId: company._id, // copied from the station's company, never from input
           status: 'available',
+          authTokenHash: await hashChargerToken(authToken),
           createdBy: superAdmin._id,
         });
         logger.info(SCOPE, `    created charger ${unit.ocppId} (${unit.name})`);
+        logger.warn(SCOPE, `      OCPP token: ${authToken}`);
+        logger.warn(
+          SCOPE,
+          `      run: npm run dev -- --charger=${unit.ocppId} --token=${authToken}`,
+        );
 
         for (const plug of unitConnectors) {
           await Connector.create({ ...plug, chargerId: charger._id, status: 'available' });

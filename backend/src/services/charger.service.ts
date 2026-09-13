@@ -15,6 +15,7 @@ import { ROLES } from '../constants/roles';
 import type { ChargerStatus } from '../constants/charger';
 import { ApiError } from '../utils/ApiError';
 import { applyCompanyScope } from '../utils/companyScope';
+import { generateChargerToken, hashChargerToken } from '../utils/chargerToken';
 import type { AuthUser } from '../types/express';
 import type { Paginated } from '../types/pagination';
 import type {
@@ -69,15 +70,29 @@ export async function assertChargerInScope(
 /* -------------------------------------------------------------------------- */
 
 /**
+ * What a caller receives after creating a charger or regenerating its token.
+ *
+ * `authToken` is the PLAINTEXT connection secret, and this is the ONLY time it is ever
+ * returned — the database stores a bcrypt hash. Same contract as an API key: shown once,
+ * regenerate if lost.
+ */
+export interface ChargerWithToken {
+  charger: PublicCharger;
+  authToken: string;
+}
+
+/**
  * Create a charger.
  *
  * `companyId` is copied from the VERIFIED station, never from the request body — which is
  * why a charger cannot be planted inside another company even if its id were guessed.
+ *
+ * Module 6: also issues the OCPP connection token the charger needs to authenticate.
  */
 export async function createCharger(
   actor: AuthUser,
   input: CreateChargerInput,
-): Promise<PublicCharger> {
+): Promise<ChargerWithToken> {
   const station = await assertStationInScope(actor, input.stationId);
 
   // Globally unique: Module 6's gateway resolves an incoming connection by this alone.
@@ -97,14 +112,37 @@ export async function createCharger(
 
   const { stationId: _ignored, ...chargerInput } = input;
 
+  const authToken = generateChargerToken();
+
   const charger = await Charger.create({
     ...chargerInput,
     stationId: station._id,
     companyId: station.companyId, // <- from the station, not the caller
+    authTokenHash: await hashChargerToken(authToken),
     createdBy: actor.id,
   });
 
-  return toPublicCharger(charger);
+  return { charger: toPublicCharger(charger), authToken };
+}
+
+/**
+ * Issue a new OCPP connection token, invalidating the old one.
+ *
+ * Necessary precisely because the token is stored hashed and shown once: if it is lost there
+ * is no way to recover it, only to replace it. Any charger still connected with the old token
+ * keeps its current socket but cannot reconnect.
+ */
+export async function regenerateChargerToken(
+  actor: AuthUser,
+  chargerId: string,
+): Promise<ChargerWithToken> {
+  const charger = await assertChargerInScope(actor, chargerId);
+
+  const authToken = generateChargerToken();
+  charger.authTokenHash = await hashChargerToken(authToken);
+  await charger.save();
+
+  return { charger: toPublicCharger(charger), authToken };
 }
 
 export async function listChargers(

@@ -14,7 +14,7 @@ Built one module at a time. See [`docs/`](./docs) for per-module documentation.
 EV-CMS/
 ├── backend/      Express + TypeScript API, OCPP gateway (Module 6), Socket.IO (Module 8)
 ├── frontend/     Next.js + React + TypeScript + Tailwind
-├── simulator/    Fake charger processes (added in Module 6)
+├── simulator/    Simulated OCPP charge point (Module 6)
 └── docs/         One document per completed module
 ```
 
@@ -41,10 +41,14 @@ cp .env.example .env.local
 
 The project runs as separate processes, one per terminal. (The simulator arrives in Module 6.)
 
-| Terminal | Directory   | Command       | URL                     |
-| -------- | ----------- | ------------- | ----------------------- |
-| 1        | `backend/`  | `npm run dev` | <http://localhost:5000> |
-| 2        | `frontend/` | `npm run dev` | <http://localhost:3000> |
+| Terminal | Directory    | Command                                             | URL                     |
+| -------- | ------------ | --------------------------------------------------- | ----------------------- |
+| 1        | `backend/`   | `npm run dev`                                       | <http://localhost:5000> |
+| 2        | `frontend/`  | `npm run dev`                                       | <http://localhost:3000> |
+| 3        | `simulator/` | `npm run dev -- --charger=<ocppId> --token=<token>` | connects to the gateway |
+
+The charger's OCPP token is printed once by `npm run seed:demo`, or can be regenerated from a
+charger's page in the admin UI.
 
 Open <http://localhost:3000> — the **System Status** page performs a live health check
 against the backend and reports the real MongoDB connection state.
@@ -82,7 +86,7 @@ against the backend and reports the real MongoDB connection state.
 | 3     | User / EV Owner Management      | ✅ Complete |
 | 4     | Station Management              | ✅ Complete |
 | 5     | Charger & Connector Management  | ✅ Complete |
-| 6     | OCPP Gateway + Simulated Charger| Not started |
+| 6     | OCPP Gateway + Simulated Charger| ✅ Complete |
 | 7     | Charging Sessions               | Not started |
 | 8     | Real-Time Monitoring            | Not started |
 | 9     | Tariff / Pricing                | Not started |

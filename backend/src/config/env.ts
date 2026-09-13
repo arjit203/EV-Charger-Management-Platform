@@ -81,6 +81,16 @@ export const env = {
 
   /** bcrypt cost factor. 10 is a sensible default; higher is slower but stronger. */
   bcryptSaltRounds: Number.parseInt(optional('BCRYPT_SALT_ROUNDS', '10'), 10),
+
+  /* --- Module 6: OCPP gateway --- */
+
+  /**
+   * Seconds of heartbeat silence before a charger is marked offline.
+   *
+   * Default 90 = three missed 30-second beats, so one lost packet is not a false alarm.
+   * Configurable mainly so tests can exercise the timeout path without waiting 90 seconds.
+   */
+  ocppOfflineAfterSeconds: Number.parseInt(optional('OCPP_OFFLINE_AFTER_SECONDS', '90'), 10),
 } as const;
 
 // Keep `required` referenced for use by later modules (JWT_SECRET in Module 1, etc.)

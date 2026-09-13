@@ -17,17 +17,28 @@ import http from 'http';
 import app from './app';
 import { env } from './config/env';
 import { connectDatabase, disconnectDatabase } from './config/db';
+import { attachOcppGateway, shutdownOcppGateway } from './ocpp/gateway';
 import { logger } from './utils/logger';
 
 const SCOPE = 'server';
 
 const httpServer = http.createServer(app);
 
+/**
+ * MODULE 6 — the OCPP WebSocket gateway attaches to the SAME HTTP server as Express.
+ *
+ * This is exactly why `app.ts` never calls `listen()` and this file creates the server
+ * explicitly. The gateway claims only paths under `/ocpp/`, leaving `/socket.io` free for
+ * Module 8 so both real-time systems can share one port without renegotiation.
+ */
+attachOcppGateway(httpServer);
+
 httpServer.listen(env.port, () => {
   logger.info(SCOPE, `EV-CMS backend listening on http://localhost:${env.port}`);
   logger.info(SCOPE, `Health check: http://localhost:${env.port}${env.apiPrefix}/health`);
   logger.info(SCOPE, `Environment: ${env.nodeEnv}`);
   logger.info(SCOPE, `Allowed CORS origins: ${env.corsOrigins.join(', ') || '(none)'}`);
+  logger.info(SCOPE, `OCPP endpoint: ws://localhost:${env.port}/ocpp/<ocppId>`);
 });
 
 httpServer.on('error', (error: NodeJS.ErrnoException) => {
@@ -57,6 +68,7 @@ async function shutdown(signal: string): Promise<void> {
 
   httpServer.close(async () => {
     try {
+      await shutdownOcppGateway();
       await disconnectDatabase();
     } catch (error) {
       logger.error(SCOPE, 'Error while closing the database connection', error);

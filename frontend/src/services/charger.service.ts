@@ -1,6 +1,7 @@
 import { apiRequest } from './apiClient';
 import type {
   Charger,
+  ChargerConnection,
   ChargerPayload,
   ChargerStatus,
   ChargerType,
@@ -53,9 +54,15 @@ export async function getCharger(chargerId: string): Promise<Charger> {
  * The station is verified against the caller's company scope on the server, and the
  * charger's company is copied from it — never from anything sent here.
  */
-export async function createCharger(input: ChargerInput): Promise<Charger> {
-  const { charger } = await apiRequest<ChargerPayload>('/chargers', { method: 'POST', body: input });
-  return charger;
+export async function createCharger(
+  input: ChargerInput,
+): Promise<{ charger: Charger; authToken: string }> {
+  // The response carries the OCPP connection token ONCE — it is stored hashed and can never
+  // be read back, only regenerated.
+  return apiRequest<{ charger: Charger; authToken: string }>('/chargers', {
+    method: 'POST',
+    body: input,
+  });
 }
 
 /** Cannot change station, company or status — the backend rejects all three. */
@@ -77,6 +84,61 @@ export async function setChargerStatus(chargerId: string, status: ChargerStatus)
     body: { status },
   });
   return charger;
+}
+
+/* --------------------------- OCPP commands (M6) --------------------------- */
+
+export interface CommandResult {
+  chargerId: string;
+  ocppId: string;
+  accepted: boolean;
+  response: Record<string, unknown>;
+}
+
+/**
+ * Ask the backend to push a RemoteStartTransaction down the charger's WebSocket.
+ *
+ * This is the Module 6 test surface. Module 7 replaces it with the real driver-facing start,
+ * which also creates a charging session and applies a tariff.
+ */
+export async function remoteStart(
+  chargerId: string,
+  connectorNumber: number,
+  idTag: string,
+): Promise<CommandResult> {
+  return apiRequest<CommandResult>(`/chargers/${chargerId}/commands/remote-start`, {
+    method: 'POST',
+    body: { connectorNumber, idTag },
+  });
+}
+
+export async function remoteStop(chargerId: string): Promise<CommandResult> {
+  return apiRequest<CommandResult>(`/chargers/${chargerId}/commands/remote-stop`, {
+    method: 'POST',
+  });
+}
+
+/** Live connection state from the gateway registry. */
+export async function getChargerConnection(chargerId: string): Promise<ChargerConnection> {
+  const { connection } = await apiRequest<{ connection: ChargerConnection }>(
+    `/chargers/${chargerId}/connection`,
+    { cache: 'no-store' },
+  );
+  return connection;
+}
+
+/**
+ * Issue a new OCPP connection token.
+ *
+ * The plaintext comes back exactly once — only a hash is stored — so the UI must show it
+ * immediately and warn that it cannot be retrieved again.
+ */
+export async function regenerateChargerToken(
+  chargerId: string,
+): Promise<{ charger: Charger; authToken: string }> {
+  return apiRequest<{ charger: Charger; authToken: string }>(`/chargers/${chargerId}/token`, {
+    method: 'POST',
+  });
 }
 
 /* ------------------------------- connectors ------------------------------- */

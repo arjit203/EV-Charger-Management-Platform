@@ -21,18 +21,29 @@ export type ConnectorType = (typeof CONNECTOR_TYPES)[number];
 /**
  * Connector status.
  *
- * Static, admin-entered data in this module. From Module 6 the OCPP gateway drives these
- * from real `StatusNotification` messages sent by the hardware, per connector.
+ * EXTENDED IN MODULE 6 (additive, as Module 5's D8 anticipated): the last three values are
+ * driven by the OCPP gateway from real `StatusNotification` messages, which arrive PER
+ * CONNECTOR from the hardware.
  *
  * Deliberately lowercase, not OCPP's PascalCase (`Available`, `Preparing`, `Charging`…).
  * Protocol values should not leak into the domain model — translating them is exactly the
- * gateway's job. Module 6 will additively extend this list with the states real hardware
- * reports, such as `preparing`, `charging` and `finishing`.
+ * gateway's job, in `ocpp/handlers.ts`.
  *
  *   available    Free and ready to use
- *   occupied     A vehicle is plugged in
+ *   occupied     A vehicle is plugged in but not drawing power
  *   faulted      Hardware reported a fault
  *   unavailable  Administratively out of service
+ *   preparing    Plugged in, authorising, about to start          (Module 6)
+ *   charging     Actively delivering energy                        (Module 6)
+ *   finishing    Session ending, cable not yet unplugged           (Module 6)
  */
-export const CONNECTOR_STATUSES = ['available', 'occupied', 'faulted', 'unavailable'] as const;
+export const CONNECTOR_STATUSES = [
+  'available',
+  'occupied',
+  'faulted',
+  'unavailable',
+  'preparing',
+  'charging',
+  'finishing',
+] as const;
 export type ConnectorStatus = (typeof CONNECTOR_STATUSES)[number];

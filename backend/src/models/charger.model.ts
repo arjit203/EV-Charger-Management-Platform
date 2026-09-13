@@ -25,6 +25,10 @@ export interface ICharger {
   powerKw: number;
   firmwareVersion?: string;
   status: ChargerStatus;
+  /* --- Module 6: connectivity, written ONLY by the OCPP gateway --- */
+  isOnline: boolean;
+  lastHeartbeatAt: Date | null;
+  authTokenHash?: string;
   createdBy: Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
@@ -85,6 +89,28 @@ const chargerSchema = new Schema<ICharger, ChargerModel>(
 
     status: { type: String, enum: CHARGER_STATUSES, required: true, default: 'available', index: true },
 
+    /**
+     * MODULE 6 — connectivity, a DIFFERENT concern from `status` above.
+     *
+     *   status           administrative: a human says this machine is in maintenance
+     *   isOnline         connectivity:   is the OCPP WebSocket currently up
+     *   Connector.status operational:    is THIS plug free / charging / faulted
+     *
+     * Three orthogonal things. These two are written only by the gateway; Module 5's admin
+     * CRUD cannot touch them, and the gateway never touches `status`.
+     */
+    isOnline: { type: Boolean, required: true, default: false, index: true },
+    lastHeartbeatAt: { type: Date, default: null },
+
+    /**
+     * bcrypt hash of the charger's connection token (Module 6).
+     *
+     * `select: false` and never returned by any endpoint — the plaintext is shown exactly
+     * once, when the charger is created or its token is regenerated, like an API key. A
+     * database dump therefore yields no working charger credentials.
+     */
+    authTokenHash: { type: String, select: false },
+
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   },
   { timestamps: true },
@@ -114,6 +140,8 @@ export interface PublicCharger {
   powerKw: number;
   firmwareVersion: string | null;
   status: ChargerStatus;
+  isOnline: boolean;
+  lastHeartbeatAt: string | null;
   createdBy: string;
   createdAt: string;
   updatedAt: string;
@@ -133,6 +161,8 @@ export function toPublicCharger(charger: ChargerDocument): PublicCharger {
     powerKw: charger.powerKw,
     firmwareVersion: charger.firmwareVersion ?? null,
     status: charger.status,
+    isOnline: charger.isOnline,
+    lastHeartbeatAt: charger.lastHeartbeatAt ? charger.lastHeartbeatAt.toISOString() : null,
     createdBy: String(charger.createdBy),
     createdAt: charger.createdAt.toISOString(),
     updatedAt: charger.updatedAt.toISOString(),
