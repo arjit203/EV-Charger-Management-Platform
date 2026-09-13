@@ -136,11 +136,17 @@ export interface ChargerConnection {
   connected: boolean;
   connectedAt: string | null;
   lastHeartbeatAt: string | null;
-  transaction: {
+  /**
+   * Every transaction the gateway currently believes this charger is running.
+   *
+   * A LIST since the Module 6 registry patch: a charger with several plugs can run several
+   * transactions at once, and reporting only one misrepresented that.
+   */
+  transactions: {
     transactionId: number;
     connectorNumber: number;
     startedAt: string;
-  } | null;
+  }[];
 }
 
 /** Mirrors `PublicConnector` in backend/src/models/connector.model.ts. */

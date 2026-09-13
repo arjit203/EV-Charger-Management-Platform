@@ -39,6 +39,7 @@ import { ApiError } from '../utils/ApiError';
 import { applyCompanyScope } from '../utils/companyScope';
 import { applyOwnerScope } from '../utils/ownerScope';
 import { logger } from '../utils/logger';
+import * as realtime from '../realtime/publisher';
 import { sendRemoteStart, sendRemoteStop } from '../ocpp/commands';
 import * as registry from '../ocpp/registry';
 import type { Paginated } from '../types/pagination';
@@ -289,6 +290,11 @@ export async function startSession(
 
   logger.info(SCOPE, `Session ${String(session._id)} initiating on ${charger.ocppId}`);
 
+  // The staff dashboard should see a session appear the moment it is requested, not only once
+  // the charger confirms - an `initiating` row that never turns active is exactly the thing an
+  // operator needs to notice.
+  realtime.emitSessionStatus(toPublicChargingSession(session));
+
   // Still `initiating`: the charger said "Accepted", which means it will try — not that it has
   // begun. Only StartTransaction moves it to `active`, which is why the API answers 202.
   return toPublicChargingSession(session);
@@ -332,6 +338,8 @@ async function markFailed(
   session.stopReason = stopReason;
   session.failureReason = failureReason.slice(0, 200);
   await session.save();
+
+  realtime.emitSessionStatus(toPublicChargingSession(session));
 }
 
 /* -------------------------------------------------------------------------- */
@@ -399,6 +407,8 @@ export async function stopSession(
     session.failureReason = 'The charger was offline when the stop was requested.';
     await session.save();
 
+    realtime.emitSessionStatus(toPublicChargingSession(session));
+
     return toPublicChargingSession(session);
   }
 
@@ -421,6 +431,8 @@ export async function stopSession(
   await session.save();
 
   logger.info(SCOPE, `Session ${String(session._id)} stopping (requested by ${actor.role})`);
+
+  realtime.emitSessionStatus(toPublicChargingSession(session));
 
   return toPublicChargingSession(session);
 }

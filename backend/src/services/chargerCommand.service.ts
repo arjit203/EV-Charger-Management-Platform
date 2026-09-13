@@ -30,12 +30,18 @@ export async function getConnectionState(actor: AuthUser, chargerId: string) {
     connected: Boolean(connection),
     connectedAt: connection ? connection.connectedAt.toISOString() : null,
     lastHeartbeatAt: connection ? connection.lastHeartbeatAt.toISOString() : null,
-    transaction: connection?.transaction
-      ? {
-          transactionId: connection.transaction.transactionId,
-          connectorNumber: connection.transaction.connectorNumber,
-          startedAt: connection.transaction.startedAt.toISOString(),
-        }
-      : null,
+    /**
+     * A LIST, not a single transaction.
+     *
+     * Module 6 reported one, which quietly misrepresented any charger with more than one plug
+     * in use - the admin saw whichever transaction started most recently and no hint that
+     * another was running. Module 8 puts this on a live dashboard, so the inaccuracy would
+     * have become visible to users rather than just wrong in an API.
+     */
+    transactions: registry.listTransactions(charger.ocppId).map((transaction) => ({
+      transactionId: transaction.transactionId,
+      connectorNumber: transaction.connectorNumber,
+      startedAt: transaction.startedAt.toISOString(),
+    })),
   };
 }

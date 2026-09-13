@@ -21,8 +21,17 @@ import {
   ocppNow,
   type OcppPayload,
 } from './messages';
-import { allocateTransactionId, setTransaction, touchHeartbeat, type ChargerConnection } from './registry';
+import {
+  allocateTransactionId,
+  clearTransaction,
+  findTransactionById,
+  getTransactionByConnector,
+  setTransaction,
+  touchHeartbeat,
+  type ChargerConnection,
+} from './registry';
 import * as sessionEvents from '../services/sessionEvents.service';
+import * as realtime from '../realtime/publisher';
 
 const SCOPE = 'ocpp';
 
@@ -98,10 +107,23 @@ export async function handleBootNotification(
   const charger = await Charger.findByIdAndUpdate(
     connection.chargerId,
     { $set: { isOnline: true, lastHeartbeatAt: new Date() } },
-    { new: true },
+    { returnDocument: 'after' },
   );
 
   touchHeartbeat(connection.ocppId);
+
+  // The online TRANSITION. BootNotification is the charger's first message after connecting,
+  // so this is the moment `isOnline` actually flips - not every subsequent heartbeat.
+  if (charger) {
+    realtime.emitChargerConnectivity({
+      chargerId: connection.chargerId,
+      stationId: String(charger.stationId),
+      companyId: connection.companyId,
+      ocppId: connection.ocppId,
+      isOnline: true,
+      lastHeartbeatAt: charger.lastHeartbeatAt ? charger.lastHeartbeatAt.toISOString() : null,
+    });
+  }
 
   return {
     status: 'Accepted',
@@ -148,10 +170,30 @@ export async function handleStatusNotification(
 
   const errorCode = typeof payload.errorCode === 'string' ? payload.errorCode : null;
 
-  const result = await Connector.updateOne(
+  // Module 8 needs the connector's id and station to address the event, and updateOne does
+  // not return the document - so this became findOneAndUpdate. Same single round trip.
+  const connector = await Connector.findOneAndUpdate(
     { chargerId: connection.chargerId, connectorNumber },
     { $set: { status: mapped, errorCode: errorCode === 'NoError' ? null : errorCode } },
+    { returnDocument: 'after' },
   );
+
+  const result = { matchedCount: connector ? 1 : 0 };
+
+  if (connector) {
+    // AFTER the write, never before: the database is the truth and this is only delivery.
+    const charger = await Charger.findById(connection.chargerId).select('stationId');
+
+    realtime.emitConnectorStatus({
+      connectorId: String(connector._id),
+      chargerId: connection.chargerId,
+      stationId: charger ? String(charger.stationId) : '',
+      companyId: connection.companyId,
+      connectorNumber,
+      status: mapped,
+      errorCode: connector.errorCode ?? null,
+    });
+  }
 
   if (result.matchedCount === 0) {
     // The charger reported a connector we have no record of. Not fatal — log it and accept,
@@ -236,8 +278,9 @@ export async function handleStartTransaction(
 
   const transactionId = outcome.session.transactionId;
 
-  // The registry copy is the gateway own bookkeeping, used to match a later StopTransaction on
-  // this socket. The database row is the record of truth; this is scratch state.
+  // The registry copy is the gateway's own bookkeeping, keyed by CONNECTOR so a charger with
+  // several plugs can run several transactions at once. The database row is the record of
+  // truth; this is scratch state used only when a charger omits `transactionId`.
   setTransaction(connection.ocppId, {
     transactionId,
     connectorNumber,
@@ -272,13 +315,22 @@ export async function handleMeterValues(
 ): Promise<OcppPayload> {
   const energyWh = requireNumber(payload, 'energyWh');
 
+  // `transactionId` is OPTIONAL on MeterValues in OCPP 1.6, so a fallback is genuinely needed.
+  // It resolves by CONNECTOR, because that is the one thing the payload always carries that
+  // identifies which charge this reading belongs to. Falling back to "whatever this charger is
+  // doing" would credit a two-plug charger's energy to the wrong driver.
+  const connectorNumber =
+    typeof payload.connectorId === 'number' ? payload.connectorId : null;
+
   const transactionId =
     typeof payload.transactionId === 'number'
       ? payload.transactionId
-      : connection.transaction?.transactionId ?? null;
+      : connectorNumber !== null
+        ? getTransactionByConnector(connection.ocppId, connectorNumber)?.transactionId ?? null
+        : null;
 
   if (transactionId === null) {
-    logger.warn(SCOPE, `MeterValues from ${connection.ocppId} with no transaction - ignored`);
+    logger.warn(SCOPE, `MeterValues from ${connection.ocppId} with no resolvable transaction - ignored`);
     return {};
   }
 
@@ -318,10 +370,17 @@ export async function handleStopTransaction(
 ): Promise<OcppPayload> {
   const meterStopWh = requireNumber(payload, 'meterStop');
 
+  // OCPP 1.6 makes `transactionId` REQUIRED here, but the connector fallback costs nothing and
+  // keeps this handler consistent with MeterValues above.
+  const payloadConnector =
+    typeof payload.connectorId === 'number' ? payload.connectorId : null;
+
   const transactionId =
     typeof payload.transactionId === 'number'
       ? payload.transactionId
-      : connection.transaction?.transactionId ?? null;
+      : payloadConnector !== null
+        ? getTransactionByConnector(connection.ocppId, payloadConnector)?.transactionId ?? null
+        : null;
 
   if (transactionId !== null) {
     const session = await sessionEvents.onStopTransaction({
@@ -342,7 +401,14 @@ export async function handleStopTransaction(
     logger.warn(SCOPE, `StopTransaction from ${connection.ocppId} with no transaction id`);
   }
 
-  setTransaction(connection.ocppId, null);
+  // Forget ONLY the connector that stopped. Clearing the whole charger here is exactly the bug
+  // this patch fixes: on a two-plug charger it would lose track of the session still running.
+  const stoppedConnector =
+    (transactionId !== null
+      ? findTransactionById(connection.ocppId, transactionId)?.connectorNumber
+      : null) ?? payloadConnector;
+
+  if (stoppedConnector !== null) clearTransaction(connection.ocppId, stoppedConnector);
 
   return { idTagInfo: { status: 'Accepted' } };
 }

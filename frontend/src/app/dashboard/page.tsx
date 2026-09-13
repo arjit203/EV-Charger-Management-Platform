@@ -55,6 +55,7 @@ const ROLE_CAPABILITIES: Record<Role, string[]> = {
 const ROLE_LINKS: Record<Role, { href: string; label: string }[]> = {
   super_admin: [
     { href: '/companies', label: 'Companies' },
+    { href: '/monitor', label: 'Live operations' },
     { href: '/stations', label: 'Stations' },
     { href: '/chargers', label: 'Chargers' },
     { href: '/sessions', label: 'Charging sessions' },
@@ -63,6 +64,7 @@ const ROLE_LINKS: Record<Role, { href: string; label: string }[]> = {
   ],
   cpo_admin: [
     { href: '/my-company', label: 'My company' },
+    { href: '/monitor', label: 'Live operations' },
     { href: '/stations', label: 'Stations' },
     { href: '/chargers', label: 'Chargers' },
     { href: '/sessions', label: 'Charging sessions' },
@@ -74,6 +76,7 @@ const ROLE_LINKS: Record<Role, { href: string; label: string }[]> = {
   // 7: force-stopping a charging session that has got stuck at their own station.
   operator: [
     { href: '/my-company', label: 'My company' },
+    { href: '/monitor', label: 'Live operations' },
     { href: '/stations', label: 'Stations' },
     { href: '/chargers', label: 'Chargers' },
     { href: '/sessions', label: 'Charging sessions' },

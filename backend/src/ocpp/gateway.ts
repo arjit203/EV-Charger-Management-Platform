@@ -35,6 +35,7 @@ import {
 } from './messages';
 import * as registry from './registry';
 import * as sessionEvents from '../services/sessionEvents.service';
+import * as realtime from '../realtime/publisher';
 
 const SCOPE = 'ocpp';
 
@@ -199,6 +200,36 @@ async function onFrame(connection: registry.ChargerConnection, raw: string): Pro
   }
 }
 
+/**
+ * Announce a connectivity TRANSITION to the browsers watching this company.
+ *
+ * Only transitions. A heartbeat arrives every 30 seconds per charger and changes nothing a
+ * dashboard renders, so emitting on each one would flood every open dashboard with "still
+ * online" - noise that would also make the genuine connect/disconnect events harder to see.
+ */
+async function announceConnectivity(
+  chargerId: string,
+  companyId: string,
+  ocppId: string,
+  isOnline: boolean,
+): Promise<void> {
+  try {
+    const charger = await Charger.findById(chargerId).select('stationId lastHeartbeatAt');
+    if (!charger) return;
+
+    realtime.emitChargerConnectivity({
+      chargerId,
+      stationId: String(charger.stationId),
+      companyId,
+      ocppId,
+      isOnline,
+      lastHeartbeatAt: charger.lastHeartbeatAt ? charger.lastHeartbeatAt.toISOString() : null,
+    });
+  } catch (error) {
+    logger.error(SCOPE, `Failed to announce connectivity for ${ocppId}`, error);
+  }
+}
+
 /* -------------------------------------------------------------------------- */
 /* Heartbeat sweep                                                            */
 /* -------------------------------------------------------------------------- */
@@ -236,6 +267,8 @@ async function sweepStaleConnections(): Promise<void> {
         'ChargerDisconnected',
         'The charger stopped sending heartbeats.',
       );
+
+      await announceConnectivity(connection.chargerId, connection.companyId, connection.ocppId, false);
     } catch (error) {
       logger.error(SCOPE, `Failed to mark ${connection.ocppId} offline`, error);
     }
@@ -301,7 +334,7 @@ function onConnection(socket: WebSocket, identity: AuthenticatedCharger): void {
     socket,
     connectedAt: new Date(),
     lastHeartbeatAt: new Date(),
-    transaction: null,
+    transactions: new Map(),
   };
 
   // Replace rather than reject: a charger reconnecting after a network blip is
@@ -347,6 +380,8 @@ function onConnection(socket: WebSocket, identity: AuthenticatedCharger): void {
       .catch((error: unknown) =>
         logger.error(SCOPE, `Failed to close sessions for ${identity.ocppId}`, error),
       );
+
+    void announceConnectivity(identity.chargerId, identity.companyId, identity.ocppId, false);
   });
 
   socket.on('error', (error) => {

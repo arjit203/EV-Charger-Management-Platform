@@ -55,9 +55,9 @@ charger's page in the admin UI.
 Open <http://localhost:3000> — the **System Status** page performs a live health check
 against the backend and reports the real MongoDB connection state.
 
-To watch a full charge: log in as a driver, open **Start charging**, paste a connector id from
-the admin UI, and press start. The session page shows the energy curve building as the charger
-reports meter values.
+To watch a full charge live: open **Live operations** as an admin in one browser and **Start
+charging** as a driver in another. Press start, and both update as the charger reports — status
+flips to charging and the energy figure climbs with no page refresh anywhere.
 
 ## Useful scripts
 
@@ -94,7 +94,7 @@ reports meter values.
 | 5     | Charger & Connector Management  | ✅ Complete |
 | 6     | OCPP Gateway + Simulated Charger| ✅ Complete |
 | 7     | Charging Sessions               | ✅ Complete |
-| 8     | Real-Time Monitoring            | Not started |
+| 8     | Real-Time Monitoring            | ✅ Complete |
 | 9     | Tariff / Pricing                | Not started |
 | 10    | Wallet & Payments               | Not started |
 | 11    | Complaints / Support            | Not started |

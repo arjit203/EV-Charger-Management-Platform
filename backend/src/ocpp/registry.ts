@@ -34,8 +34,29 @@ export interface ChargerConnection {
   socket: WebSocket;
   connectedAt: Date;
   lastHeartbeatAt: Date;
-  /** The one in-flight transaction, if charging. Simplified: one per charger. */
-  transaction: ActiveTransaction | null;
+  /**
+   * In-flight transactions, KEYED BY CONNECTOR NUMBER.
+   *
+   * MODULE 6 PATCH (applied during Module 8). This was a single
+   * `transaction: ActiveTransaction | null` field, on the assumption that a charger runs one
+   * transaction at a time. That assumption is wrong for any charger with more than one plug,
+   * and a probe proved three distinct failures:
+   *
+   *   1. OVERWRITE      the second StartTransaction clobbered the first's bookkeeping, so
+   *                     GET /chargers/:id/connection reported only the most recent one
+   *   2. MISROUTING     OCPP 1.6 makes `transactionId` OPTIONAL on MeterValues. Without it we
+   *                     fell back to the single slot and credited energy to whichever session
+   *                     happened to be sitting there - i.e. to the wrong driver
+   *   3. PREMATURE CLEAR  any StopTransaction nulled the slot, so the SURVIVING session's
+   *                     later readings were dropped entirely
+   *
+   * Module 7's database layer was never affected: the partial unique index is per connector,
+   * and anything carrying an explicit transactionId is resolved by a query. This map fixes the
+   * gateway's own bookkeeping, which is what the fallback and the diagnostics read.
+   *
+   * Still scratch state, not truth - the ChargingSession record remains authoritative.
+   */
+  transactions: Map<number, ActiveTransaction>;
 }
 
 const connections = new Map<string, ChargerConnection>();
@@ -104,9 +125,47 @@ export function touchHeartbeat(ocppId: string): void {
   if (connection) connection.lastHeartbeatAt = new Date();
 }
 
-export function setTransaction(ocppId: string, transaction: ActiveTransaction | null): void {
+/** Record a transaction against the connector it is actually running on. */
+export function setTransaction(ocppId: string, transaction: ActiveTransaction): void {
   const connection = connections.get(ocppId);
-  if (connection) connection.transaction = transaction;
+  if (connection) connection.transactions.set(transaction.connectorNumber, transaction);
+}
+
+/**
+ * Forget ONE connector's transaction.
+ *
+ * Deliberately narrow: clearing everything on a StopTransaction is precisely the bug this
+ * patch fixes, because a two-plug charger stopping one session would lose track of the other.
+ */
+export function clearTransaction(ocppId: string, connectorNumber: number): void {
+  connections.get(ocppId)?.transactions.delete(connectorNumber);
+}
+
+/** The transaction running on a given plug, used when a charger omits `transactionId`. */
+export function getTransactionByConnector(
+  ocppId: string,
+  connectorNumber: number,
+): ActiveTransaction | undefined {
+  return connections.get(ocppId)?.transactions.get(connectorNumber);
+}
+
+/** Reverse lookup, for a StopTransaction that names a transaction but not a connector. */
+export function findTransactionById(
+  ocppId: string,
+  transactionId: number,
+): ActiveTransaction | undefined {
+  const connection = connections.get(ocppId);
+  if (!connection) return undefined;
+
+  for (const transaction of connection.transactions.values()) {
+    if (transaction.transactionId === transactionId) return transaction;
+  }
+  return undefined;
+}
+
+/** Everything this charger currently believes it is running. For diagnostics. */
+export function listTransactions(ocppId: string): ActiveTransaction[] {
+  return [...(connections.get(ocppId)?.transactions.values() ?? [])];
 }
 
 export function all(): ChargerConnection[] {

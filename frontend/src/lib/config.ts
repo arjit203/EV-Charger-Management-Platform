@@ -15,7 +15,19 @@ if (!apiBaseUrl) {
   );
 }
 
+const apiRoot = apiBaseUrl.replace(/\/+$/, '');
+
 export const config = {
   /** Backend API root, including the version prefix. No trailing slash. */
-  apiBaseUrl: apiBaseUrl.replace(/\/+$/, ''),
+  apiBaseUrl: apiRoot,
+
+  /**
+   * Socket.IO origin (Module 8).
+   *
+   * Derived from the API URL rather than configured separately, because both are served by the
+   * SAME http.Server — the API lives under `/api/v1` and Socket.IO under `/socket.io`, so
+   * stripping the path prefix gives the origin. A second env var could drift out of step with
+   * the first and produce a socket pointing somewhere the REST calls do not.
+   */
+  socketUrl: apiRoot.replace(/\/api\/v\d+$/, ''),
 } as const;

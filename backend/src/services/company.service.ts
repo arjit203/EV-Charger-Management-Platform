@@ -9,6 +9,7 @@ import { type QueryFilter } from 'mongoose';
 
 import { Company, toPublicCompany, type ICompany, type PublicCompany } from '../models/company.model';
 import { ApiError } from '../utils/ApiError';
+import * as realtime from '../realtime/publisher';
 import { resolveCompanyScope } from '../utils/companyScope';
 import type { AuthUser } from '../types/express';
 import type { CompanyStatus } from '../constants/company';
@@ -163,6 +164,13 @@ export async function updateCompany(
  * independent switches. Enforcement is live — `requireActiveCompany` re-reads this value on
  * every company-scoped request, so a suspension takes effect immediately even for staff
  * holding tokens issued beforehand.
+ *
+ * MODULE 8 ADDITION (flagged cross-module edit): a suspension now also drops the company's LIVE
+ * SOCKETS. "Takes effect on the next request" is the whole mechanism above — but a Socket.IO
+ * connection never makes another request. It is already open, and would keep receiving room
+ * broadcasts indefinitely. Without this line, suspended staff lose REST access while keeping a
+ * live feed of their own chargers through a side door: a real, if narrow, security
+ * inconsistency. Their next connection attempt is refused at the handshake.
  */
 export async function setCompanyStatus(
   companyId: string,
@@ -176,6 +184,10 @@ export async function setCompanyStatus(
 
   if (!company) {
     throw ApiError.notFound('Company not found.');
+  }
+
+  if (status !== 'active') {
+    realtime.disconnectCompany(String(company._id));
   }
 
   return toPublicCompany(company);

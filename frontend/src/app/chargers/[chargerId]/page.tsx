@@ -177,10 +177,12 @@ function OcppSection({ charger, canCommand }: { charger: Charger; canCommand: bo
         <dd className="text-xs">
           {charger.lastHeartbeatAt ? new Date(charger.lastHeartbeatAt).toLocaleString() : 'never'}
         </dd>
-        <dt className="text-neutral-500">Transaction</dt>
+        <dt className="text-neutral-500">Transactions</dt>
         <dd className="text-xs">
-          {connection?.transaction
-            ? `#${connection.transaction.transactionId} on connector ${connection.transaction.connectorNumber}`
+          {connection?.transactions.length
+            ? connection.transactions
+                .map((t) => `#${t.transactionId} on connector ${t.connectorNumber}`)
+                .join(', ')
             : 'none in progress'}
         </dd>
       </dl>

@@ -23,6 +23,7 @@ import { User, toPublicUser, type IUser, type PublicUser, type UserStatus } from
 import { Company } from '../models/company.model';
 import { ROLES, type Role } from '../constants/roles';
 import { ApiError } from '../utils/ApiError';
+import * as realtime from '../realtime/publisher';
 import { resolveCompanyScope } from '../utils/companyScope';
 import type { AuthUser } from '../types/express';
 import type { Paginated } from '../types/pagination';
@@ -210,6 +211,11 @@ export async function updateUser(
  *
  * Guarded against self-suspension: an admin who suspends themselves is instantly locked
  * out by `auth.middleware`, with no one but another admin able to undo it.
+ *
+ * MODULE 8 ADDITION (flagged cross-module edit): suspending an account now also drops its live
+ * sockets. Identical reasoning to the company case in `company.service.ts` — REST re-checks
+ * `status` on every request, but an open socket makes no further request. Fixing only the
+ * company half would have left the same hole open one level down, for individuals.
  */
 export async function setUserStatus(
   actor: AuthUser,
@@ -227,6 +233,11 @@ export async function setUserStatus(
   );
 
   if (!user) throw notFoundOrForbidden(actor);
+
+  if (status !== 'active') {
+    realtime.disconnectUserSockets(String(user._id));
+  }
+
   return toPublicUser(user);
 }
 

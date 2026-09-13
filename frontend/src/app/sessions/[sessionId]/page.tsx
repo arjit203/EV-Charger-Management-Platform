@@ -3,18 +3,25 @@
 /**
  * Charging session detail — live while it runs, a receipt once it ends.
  *
- * POLLING, AND WHY IT IS TEMPORARY. This screen re-fetches every three seconds while the
- * session is open. That is the honest interim solution: the browser has no way to learn that a
- * charger sent a MeterValues, because the OCPP socket ends at the backend. Module 8 replaces
- * the polling with Socket.IO and the backend pushes each reading as it lands.
+ * MODULE 8 REPLACED THE POLL. This screen used to re-fetch every three seconds; now the
+ * backend pushes `session:statusChanged` and `session:meterUpdate` as they land, and the
+ * numbers move the instant the charger reports them instead of up to three seconds later.
  *
- * The two real-time systems stay separate even then. The browser never speaks OCPP, and the
- * charger never speaks Socket.IO — the backend is the only thing that sees both.
+ * The two real-time systems stay separate. The charger's MeterValues arrives over OCPP on a
+ * socket that ends at the backend; the backend writes it, then emits an app event over
+ * Socket.IO. The browser never speaks OCPP and the charger never speaks Socket.IO — the
+ * backend is the only thing that sees both.
+ *
+ * REST still does the first load, and does it again on every reconnect: an event describes a
+ * change, so there has to be something to change, and events missed while offline are gone.
  */
 
 import { useCallback, useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
+
+import { useSocket } from '@/context/SocketContext';
+import { useSocketEvent } from '@/hooks/useSocketEvent';
 
 import { RequireAuth } from '@/components/RequireAuth';
 import { StatusBadge } from '@/components/StatusBadge';
@@ -32,7 +39,6 @@ import { toMessage } from '@/lib/formatApiError';
 import { getSession, getSessionReadings, stopSession } from '@/services/session.service';
 import type { ChargingSession, MeterReading } from '@/types/api';
 
-const POLL_INTERVAL_MS = 3000;
 const OPEN_STATUSES = ['initiating', 'active', 'stopping'];
 
 /** A tiny inline chart. No library: it is one path over a handful of points. */
@@ -87,6 +93,7 @@ function SessionDetail({
   onChanged: (session: ChargingSession) => void;
 }) {
   const { user } = useAuth();
+  const { isConnected } = useSocket();
   const [error, setError] = useState<string | null>(null);
   const [isStopping, setIsStopping] = useState(false);
 
@@ -133,7 +140,15 @@ function SessionDetail({
             )}
           </p>
         </div>
-        <StatusBadge tone={sessionTone(session.status)} label={SESSION_STATUS_LABELS[session.status]} />
+        <div className="flex items-center gap-2">
+          {isOpen && (
+            <StatusBadge
+              tone={isConnected ? 'good' : 'warn'}
+              label={isConnected ? 'live' : 'reconnecting…'}
+            />
+          )}
+          <StatusBadge tone={sessionTone(session.status)} label={SESSION_STATUS_LABELS[session.status]} />
+        </div>
       </div>
 
       {session.status === 'initiating' && (
@@ -182,7 +197,7 @@ function SessionDetail({
         <h2 className="text-sm font-semibold">Energy delivered</h2>
         <p className="mb-4 mt-0.5 text-xs text-neutral-500">
           {readings.length} meter reading{readings.length === 1 ? '' : 's'} from the charger
-          {isOpen ? ' · updating every few seconds' : ''}
+          {isOpen ? ' · updating live' : ''}
         </p>
         <EnergyCurve readings={readings} />
       </section>
@@ -222,17 +237,33 @@ function SessionDetailContent() {
   );
 
   const { state, reload, setData } = useAsyncData(load);
+  // Only the reconnect counter is needed here; the "live" badge lives in the child, which
+  // reads `isConnected` itself.
+  const { reconnectCount } = useSocket();
 
-  // Poll only while there is something to watch. A completed session never changes again, so
-  // continuing to poll it would be pure waste — and it is why this effect depends on `isOpen`
-  // rather than running unconditionally.
-  const isOpen = state.status === 'ok' && OPEN_STATUSES.includes(state.data.session.status);
-
+  /*
+   * RECOVERY, not polling. Refetch once per (re)connect, because events emitted while the
+   * browser was offline are not replayed. The first connect is included deliberately, so the
+   * normal path and the recovery path are one piece of code.
+   */
   useEffect(() => {
-    if (!isOpen) return;
-    const timer = setInterval(() => void reload(), POLL_INTERVAL_MS);
-    return () => clearInterval(timer);
-  }, [isOpen, reload]);
+    if (reconnectCount > 1) void reload();
+  }, [reconnectCount, reload]);
+
+  // Only this session's events matter. The socket carries a driver's own sessions and, for
+  // staff, their whole company - so the id check is a DISPLAY filter, never a security one.
+  useSocketEvent<{ session: ChargingSession }>('session:statusChanged', ({ session }) => {
+    if (state.status !== 'ok' || session.id !== state.data.session.id) return;
+    setData({ ...state.data, session });
+  });
+
+  useSocketEvent<{ sessionId: string }>('session:meterUpdate', (event) => {
+    if (state.status !== 'ok' || event.sessionId !== state.data.session.id) return;
+    // Refetch rather than appending the payload: the readings list is the chart's source and
+    // the server already knows the canonical order, so one request beats reimplementing the
+    // merge (and any disagreement between the two).
+    void reload();
+  });
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-12">

@@ -15,7 +15,11 @@
  * The gateway calls into this module; this module never reaches back into the gateway.
  */
 
-import { ChargingSession, type ChargingSessionDocument } from '../models/chargingSession.model';
+import {
+  ChargingSession,
+  toPublicChargingSession,
+  type ChargingSessionDocument,
+} from '../models/chargingSession.model';
 import { MeterReading } from '../models/meterReading.model';
 import {
   OPEN_SESSION_STATUSES,
@@ -24,6 +28,7 @@ import {
   type StopReason,
 } from '../constants/session';
 import { logger } from '../utils/logger';
+import * as realtime from '../realtime/publisher';
 
 const SCOPE = 'session';
 
@@ -147,6 +152,9 @@ export async function onStartTransaction(
     `Session ${String(session._id)} active (transaction ${String(session.transactionId)})`,
   );
 
+  // AFTER the save. This is the transition the driver has been waiting on since the 202.
+  realtime.emitSessionStatus(toPublicChargingSession(session));
+
   return { session, accepted: true };
 }
 
@@ -226,6 +234,22 @@ export async function onMeterValues(input: MeterValuesInput): Promise<MeterValue
   session.energyConsumedWh = consumedWh(session.startMeterWh, input.energyWh);
   await session.save();
 
+  // ONLY for a reading that was actually stored. A duplicate or stale reading the monotonicity
+  // check rejected returns above without emitting - otherwise the UI would show a number the
+  // database does not hold, which is precisely the drift the "write first" rule prevents.
+  realtime.emitMeterUpdate({
+    sessionId: String(session._id),
+    chargerId: String(session.chargerId),
+    connectorId: String(session.connectorId),
+    companyId: String(session.companyId),
+    userId: String(session.userId),
+    energyConsumedWh: session.energyConsumedWh,
+    energyConsumedKwh: Number((session.energyConsumedWh / 1000).toFixed(3)),
+    powerKw: input.powerKw ?? null,
+    socPercent: input.socPercent ?? null,
+    meterTimestamp: parseChargerTime(input.timestamp).toISOString(),
+  });
+
   return { stored: true };
 }
 
@@ -276,6 +300,8 @@ export async function onStopTransaction(
       `${(session.energyConsumedWh / 1000).toFixed(3)} kWh (${stopReason})`,
   );
 
+  realtime.emitSessionStatus(toPublicChargingSession(session));
+
   return session;
 }
 
@@ -318,6 +344,10 @@ export async function failOpenSessionsForCharger(
       `Session ${String(session._id)} failed: ${failureReason} ` +
         `(${(session.energyConsumedWh / 1000).toFixed(3)} kWh recorded)`,
     );
+
+    // A driver watching a live session must be told it died, not left staring at a stale
+    // "charging" screen until they refresh.
+    realtime.emitSessionStatus(toPublicChargingSession(session));
   }
 
   return open.length;
@@ -350,6 +380,8 @@ export async function sweepUnconfirmedSessions(): Promise<number> {
     await session.save();
 
     logger.warn(SCOPE, `Session ${String(session._id)} failed: start not confirmed`);
+
+    realtime.emitSessionStatus(toPublicChargingSession(session));
   }
 
   return stale.length;

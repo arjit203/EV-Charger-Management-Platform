@@ -18,6 +18,7 @@ import app from './app';
 import { env } from './config/env';
 import { connectDatabase, disconnectDatabase } from './config/db';
 import { attachOcppGateway, shutdownOcppGateway } from './ocpp/gateway';
+import { attachRealtime, closeRealtime } from './realtime';
 import { logger } from './utils/logger';
 
 const SCOPE = 'server';
@@ -32,6 +33,13 @@ const httpServer = http.createServer(app);
  * Module 8 so both real-time systems can share one port without renegotiation.
  */
 attachOcppGateway(httpServer);
+
+/*
+ * Both real-time systems bind to the SAME http.Server, which is the whole reason this file has
+ * never used `app.listen()`. The OCPP gateway claims `/ocpp/*` and ignores everything else;
+ * Socket.IO takes `/socket.io`. Chargers and browsers therefore share a port and nothing more.
+ */
+attachRealtime(httpServer);
 
 httpServer.listen(env.port, () => {
   logger.info(SCOPE, `EV-CMS backend listening on http://localhost:${env.port}`);
@@ -69,6 +77,7 @@ async function shutdown(signal: string): Promise<void> {
   httpServer.close(async () => {
     try {
       await shutdownOcppGateway();
+      await closeRealtime();
       await disconnectDatabase();
     } catch (error) {
       logger.error(SCOPE, 'Error while closing the database connection', error);

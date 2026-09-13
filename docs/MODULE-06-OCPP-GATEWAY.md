@@ -327,6 +327,36 @@ of the files lost in an earlier history rewrite. Everything worked locally only 
 `node_modules` still held them; `npm install ws` pruned the undeclared packages and exposed it.
 **A fresh clone would have failed to build.** All four are now declared.
 
+## 15b. PATCH — multi-connector transaction tracking (applied during Module 8)
+
+**Flagged change to a locked module.** The registry originally held one
+`transaction: ActiveTransaction | null` per charger, assuming a charger runs one transaction at
+a time. That is wrong for any charger with more than one plug. A probe with two connectors and
+two drivers proved three distinct failures:
+
+| # | Failure | Effect |
+| - | ------- | ------ |
+| 1 | **Overwrite** | The second `StartTransaction` clobbered the first's bookkeeping; `GET /chargers/:id/connection` reported only the most recent |
+| 2 | **Misrouting** | `transactionId` is OPTIONAL on `MeterValues` in OCPP 1.6. Without it the fallback used the single slot and credited energy to **the wrong driver** |
+| 3 | **Premature clear** | Any `StopTransaction` nulled the slot, so the surviving session's later readings were dropped |
+
+Module 7's database layer was never affected — the partial unique index is per connector, and
+anything carrying an explicit `transactionId` is resolved by a query. Our simulator always sends
+one, which is why the bug was invisible.
+
+**Fix:** `transactions: Map<connectorNumber, ActiveTransaction>`, a fallback that resolves by
+the `connectorId` every payload already carries, and `clearTransaction(ocppId, connectorNumber)`
+so a stop forgets only its own plug.
+
+**Contract change:** `GET /chargers/:id/connection` now returns `transactions: [...]` instead of
+`transaction: {...} | null`. Frontend and the Module 6 check script updated accordingly.
+
+Fixed now rather than deferred because Module 8 puts this on a live dashboard — an inaccuracy
+that was merely wrong in an API response would have become visible to users. Verified by 21
+checks in `multiconnector.test.mjs`; the 80 Module 6 checks still pass.
+
+---
+
 ## 16. Known limits — say these before an interviewer finds them
 
 - **The registry is in-memory.** With two backend instances, a charger connected to A is
