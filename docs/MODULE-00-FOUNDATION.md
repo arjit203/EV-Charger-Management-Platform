@@ -170,6 +170,8 @@ Backend, independently (curl):
 
 | Check                                    | Result                                                   |
 | ---------------------------------------- | -------------------------------------------------------- |
+| `GET /api/v1/health`, MongoDB connected  | **200**, `status: "ok"`, `database.state: "connected"`, `name: "ev_cms"` |
+| Atlas read/write round trip              | insert → find → delete → drop all succeeded              |
 | `GET /api/v1/health`, no `MONGODB_URI`   | 503, `database.state: "not_configured"`, server stays up |
 | `GET /api/v1/health`, unreachable MongoDB| 503, `state: "disconnected"`, `lastError: "connect ECONNREFUSED 127.0.0.1:27017"` |
 | `GET /api/v1/does-not-exist`             | 404 in the standard error shape, `errorCode: "NOT_FOUND"` |
@@ -202,8 +204,17 @@ Frontend:
 
 ## 10. Known state / notes
 
-- `MONGODB_URI` in `backend/.env` is intentionally **empty**. Supply your own connection
-  string; until then the status page correctly reports `not_configured`.
+- **EV-CMS uses its own dedicated Atlas project and cluster**, holding only the `ev_cms`
+  database. Verified isolated: the credentials can see `admin` and `local` and nothing else.
+- **The connection string must end with `/ev_cms` before the query string.** Strings copied
+  from the Atlas UI end in `/?ssl=...` with no database path, and Mongoose then silently uses
+  a database called `test`. Always check `database.name` in the health response — not just
+  `state` — after changing `MONGODB_URI`. Any destructive or seed script should assert
+  `mongoose.connection.name === 'ev_cms'` before running.
+- `tsx watch` watches `src/` only, so editing `.env` requires a manual backend restart.
+- `MONGODB_URI` in `backend/.env.example` is intentionally **empty** — that file is git-tracked,
+  so a real connection string must never be pasted into it. Real credentials belong only in
+  `backend/.env`, which is git-ignored.
 - A failed initial connection is **not** retried automatically. Restart the backend after
   fixing `MONGODB_URI`. (Mongoose reconnects on its own only after a *successful* first
   connection.)

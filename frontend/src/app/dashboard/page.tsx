@@ -34,9 +34,40 @@ const ROLE_CAPABILITIES: Record<Role, string[]> = {
     'No company or platform administration',
   ],
   driver: [
+    'Manage your own vehicles',
     'Find available charging stations (Module 14)',
     'Start and stop your own sessions (Module 7)',
     'Your wallet, payments and charging history (Module 10)',
+  ],
+};
+
+/**
+ * Role-aware navigation.
+ *
+ * A driver simply has no company-management entry point. Note this only hides links —
+ * the backend still answers 403 if a driver requests those endpoints directly, which is
+ * where the actual enforcement lives.
+ */
+const ROLE_LINKS: Record<Role, { href: string; label: string }[]> = {
+  super_admin: [
+    { href: '/companies', label: 'Companies' },
+    { href: '/users', label: 'Users' },
+    { href: '/profile', label: 'My profile' },
+  ],
+  cpo_admin: [
+    { href: '/my-company', label: 'My company' },
+    { href: '/users', label: 'Users' },
+    { href: '/profile', label: 'My profile' },
+  ],
+  // No user management for operators: the justification would be operational, and no
+  // charger or session exists yet. Revisit in Module 7.
+  operator: [
+    { href: '/my-company', label: 'My company' },
+    { href: '/profile', label: 'My profile' },
+  ],
+  driver: [
+    { href: '/my-vehicles', label: 'My vehicles' },
+    { href: '/profile', label: 'My profile' },
   ],
 };
 
@@ -102,6 +133,20 @@ function DashboardContent() {
           token by the backend — nothing here is read from local storage.
         </p>
       </section>
+
+      {ROLE_LINKS[user.role].length > 0 ? (
+        <nav className="flex flex-wrap gap-2">
+          {ROLE_LINKS[user.role].map((link) => (
+            <Link
+              key={link.href}
+              href={link.href}
+              className="rounded-lg border border-neutral-200 px-4 py-2 text-sm font-medium transition-colors hover:bg-neutral-500/10 dark:border-neutral-800"
+            >
+              {link.label}
+            </Link>
+          ))}
+        </nav>
+      ) : null}
 
       <section className="rounded-xl border border-neutral-200 p-5 dark:border-neutral-800">
         <h2 className="text-sm font-semibold">What this role will be able to do</h2>

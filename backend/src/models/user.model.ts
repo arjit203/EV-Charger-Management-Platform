@@ -15,7 +15,7 @@
 import { Schema, model, type HydratedDocument, type Model, type Types } from 'mongoose';
 import bcrypt from 'bcryptjs';
 
-import { ALL_ROLES, ROLES, type Role } from '../constants/roles';
+import { ALL_ROLES, COMPANY_SCOPED_ROLES, ROLES, type Role } from '../constants/roles';
 import { env } from '../config/env';
 
 export type UserStatus = 'active' | 'suspended';
@@ -102,6 +102,31 @@ const userSchema = new Schema<IUser, UserModel, IUserMethods>(
 // Supports the company-scoped lookups every later module performs, e.g.
 // "all operators belonging to company X".
 userSchema.index({ companyId: 1, role: 1 });
+
+/**
+ * Enforce the User <-> Company relationship at the schema level (Module 2).
+ *
+ * `cpo_admin` and `operator` are company staff and MUST belong to exactly one company;
+ * `super_admin` operates platform-wide and `driver` is an end user, so both MUST have none.
+ *
+ * Putting this in the model rather than only in a service means a company-scoped user
+ * without a company is impossible to save through ANY code path — including future
+ * modules, scripts and seeders. `resolveCompanyScope` fails closed on such a record,
+ * so making it unsavable removes the failure mode entirely.
+ */
+// Declared with no `next` parameter: Mongoose inspects the function's arity and, when it
+// takes no arguments, treats it as synchronous/promise-based rather than callback-style.
+userSchema.pre('validate', function enforceCompanyRelationship() {
+  const needsCompany = COMPANY_SCOPED_ROLES.includes(this.role);
+
+  if (needsCompany && !this.companyId) {
+    this.invalidate('companyId', `A ${this.role} must belong to a company.`);
+  }
+
+  if (!needsCompany && this.companyId) {
+    this.invalidate('companyId', `A ${this.role} must not belong to a company.`);
+  }
+});
 
 userSchema.methods.comparePassword = function comparePassword(
   plainPassword: string,

@@ -66,6 +66,21 @@ export const env = {
    * An empty string here is a valid, reported state — not a crash.
    */
   mongodbUri: optional('MONGODB_URI', ''),
+
+  /* --- Module 1: authentication --- */
+
+  /**
+   * JWT signing key. Required — unlike the database, there is no safe degraded mode
+   * for auth, so a missing secret must stop the process rather than silently produce
+   * unverifiable tokens.
+   */
+  jwtSecret: required('JWT_SECRET'),
+
+  /** Access-token lifetime, e.g. "7d", "12h", "30m". */
+  jwtExpiresIn: optional('JWT_EXPIRES_IN', '7d'),
+
+  /** bcrypt cost factor. 10 is a sensible default; higher is slower but stronger. */
+  bcryptSaltRounds: Number.parseInt(optional('BCRYPT_SALT_ROUNDS', '10'), 10),
 } as const;
 
 // Keep `required` referenced for use by later modules (JWT_SECRET in Module 1, etc.)

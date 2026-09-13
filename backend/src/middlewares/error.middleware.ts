@@ -21,6 +21,38 @@ export interface ErrorBody {
   stack?: string;
 }
 
+/**
+ * Translate database-layer errors into the right HTTP answer.
+ *
+ * Added in Module 1. A unique-index violation is a race the application cannot fully
+ * prevent: two simultaneous registrations can both pass the "does this email exist?"
+ * check and only fail at insert time. Without this, that race would surface as a 500,
+ * blaming the server for what is really a 409 Conflict.
+ */
+function translateKnownErrors(error: unknown): ApiError | null {
+  if (typeof error !== 'object' || error === null) return null;
+
+  const candidate = error as { name?: string; code?: number; keyPattern?: Record<string, unknown> };
+
+  // MongoDB duplicate key
+  if (candidate.code === 11000) {
+    const field = Object.keys(candidate.keyPattern ?? {})[0] ?? 'value';
+    return ApiError.conflict(`That ${field} is already in use.`, { field });
+  }
+
+  // Mongoose schema validation (a bug in our code, but a 422 is more honest than a 500)
+  if (candidate.name === 'ValidationError') {
+    return ApiError.validation('The submitted data is not valid.');
+  }
+
+  // Malformed ObjectId in a route param, e.g. /stations/not-an-id
+  if (candidate.name === 'CastError') {
+    return ApiError.badRequest('Malformed identifier in request.');
+  }
+
+  return null;
+}
+
 export function errorHandler(
   error: unknown,
   req: Request,
@@ -31,11 +63,12 @@ export function errorHandler(
   const apiError =
     error instanceof ApiError
       ? error
-      : new ApiError(
+      : (translateKnownErrors(error) ??
+        new ApiError(
           500,
           error instanceof Error ? error.message : 'Unexpected server error',
           'INTERNAL_ERROR',
-        );
+        ));
 
   // 5xx means we broke something — always log it with the stack.
   // 4xx is the caller's mistake and is expected traffic, so log it quietly.

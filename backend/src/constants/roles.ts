@@ -40,3 +40,13 @@ export const COMPANY_ADMIN_ROLES: Role[] = [ROLES.SUPER_ADMIN, ROLES.CPO_ADMIN];
 
 /** Roles allowed to perform operational actions on chargers/stations. */
 export const OPERATIONAL_ROLES: Role[] = [ROLES.SUPER_ADMIN, ROLES.CPO_ADMIN, ROLES.OPERATOR];
+
+/**
+ * The only roles a super_admin may assign when creating staff for a company
+ * (Module 2's `POST /companies/:companyId/users`).
+ *
+ * `super_admin` is excluded so the endpoint can never mint another platform administrator,
+ * and `driver` is excluded because drivers are not company staff — they self-register.
+ */
+export const ASSIGNABLE_COMPANY_ROLES = [ROLES.CPO_ADMIN, ROLES.OPERATOR] as const;
+export type AssignableCompanyRole = (typeof ASSIGNABLE_COMPANY_ROLES)[number];

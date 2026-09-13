@@ -5,10 +5,16 @@
  * of that choice lives here and in `auth.middleware.ts`, so moving to httpOnly cookies
  * later is a two-file change on the backend.
  *
- * The payload deliberately carries `role` and `companyId`. That lets middleware make an
- * authorisation decision without a database round trip — but note that a token issued
- * before a role change still carries the OLD role until it expires, which is why
- * `auth.middleware.ts` reloads the user and treats the database as authoritative.
+ * IMPORTANT: the `role` and `companyId` claims in this payload are NOT used to make
+ * authorisation decisions. `auth.middleware.ts` reloads the user from MongoDB on every
+ * authenticated request and overwrites `req.user` with the database values, because a
+ * token issued before a suspension, role change or company reassignment would otherwise
+ * keep granting the old access until it expired.
+ *
+ * So there is deliberately no "fast path" here, and adding one would reintroduce exactly
+ * the staleness the reload exists to prevent. The claims are carried for debugging and
+ * log correlation only — treat them as informational, never as a source of truth.
+ * See the cost note in `auth.middleware.ts`.
  */
 
 import jwt from 'jsonwebtoken';

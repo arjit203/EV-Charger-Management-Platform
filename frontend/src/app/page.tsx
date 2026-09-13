@@ -13,6 +13,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 
 import { StatusBadge, type Tone } from '@/components/StatusBadge';
 import { ApiClientError } from '@/services/apiClient';
@@ -197,6 +198,18 @@ export default function SystemStatusPage() {
           <span className="text-xs text-neutral-500">Last checked at {checkedAt}</span>
         ) : null}
       </div>
+
+      <nav className="flex gap-4 text-sm">
+        <Link href="/login" className="underline underline-offset-4">
+          Sign in
+        </Link>
+        <Link href="/register" className="underline underline-offset-4">
+          Create account
+        </Link>
+        <Link href="/dashboard" className="underline underline-offset-4">
+          Dashboard
+        </Link>
+      </nav>
     </main>
   );
 }

@@ -16,6 +16,7 @@
  */
 
 import { config } from '@/lib/config';
+import { getToken } from '@/lib/authStorage';
 import type { ApiEnvelope } from '@/types/api';
 
 /** Thrown for any failed request: network, non-JSON, or `success: false`. */
@@ -38,6 +39,8 @@ export class ApiClientError extends Error {
 export interface RequestOptions extends Omit<RequestInit, 'body'> {
   /** Plain object; serialised to JSON automatically. */
   body?: unknown;
+  /** Set false for public endpoints that should never send credentials. */
+  auth?: boolean;
 }
 
 /**
@@ -48,8 +51,12 @@ export interface RequestOptions extends Omit<RequestInit, 'body'> {
  * @throws {ApiClientError} on network failure, malformed response, or `success: false`.
  */
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { body, headers, ...rest } = options;
+  const { body, headers, auth = true, ...rest } = options;
   const url = `${config.apiBaseUrl}${path.startsWith('/') ? path : `/${path}`}`;
+
+  // Attach the access token when we have one. Read per-request rather than cached,
+  // so a login or logout elsewhere in the app takes effect immediately.
+  const token = auth ? getToken() : null;
 
   let response: Response;
   try {
@@ -57,6 +64,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
       ...rest,
       headers: {
         'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...headers,
       },
       body: body === undefined ? undefined : JSON.stringify(body),

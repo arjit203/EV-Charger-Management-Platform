@@ -24,6 +24,11 @@ interface AuthContextValue {
   login(email: string, password: string): Promise<User>;
   register(input: RegisterInput): Promise<User>;
   logout(): void;
+  /**
+   * Replace the cached user after a self-service update (Module 3's PATCH /users/me)
+   * returns fresh data. Avoids a second round trip to /auth/me just to refresh a name.
+   */
+  updateCurrentUser(user: User): void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -86,9 +91,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
+  const updateCurrentUser = useCallback((next: User) => setUser(next), []);
+
   const value = useMemo<AuthContextValue>(
-    () => ({ user, isLoading, login, register, logout }),
-    [user, isLoading, login, register, logout],
+    () => ({ user, isLoading, login, register, logout, updateCurrentUser }),
+    [user, isLoading, login, register, logout, updateCurrentUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

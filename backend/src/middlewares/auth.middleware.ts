@@ -7,8 +7,19 @@
  * The database reload is deliberate. A JWT is a snapshot: a token issued before an
  * admin suspended an account, changed its role, or reassigned its company still
  * carries the old claims until it expires. Treating the token as authoritative would
- * mean a suspended user keeps full access for up to `JWT_EXPIRES_IN`. One indexed
- * lookup per request is a cheap price for revocation actually working.
+ * mean a suspended user keeps full access for up to `JWT_EXPIRES_IN`.
+ *
+ * COST, ACCEPTED ON PURPOSE: this adds one indexed `findById` to EVERY authenticated
+ * request — every station list, every charger status poll, and from Module 8 every
+ * socket handshake. That is a real, permanent overhead, not an oversight. It is the
+ * correct trade at this scale: revocation that actually works beats a few saved
+ * milliseconds.
+ *
+ * Do NOT "optimise" this by trusting the token's claims, or by bolting on a Redis
+ * user cache when Module 8 makes things feel slow — a cache reintroduces the same
+ * staleness window this reload exists to close, just with extra infrastructure. If it
+ * ever genuinely needs to change, that is a deliberate Module 16 decision with a
+ * cache-invalidation story, not a performance tweak made mid-module.
  */
 
 import { User } from '../models/user.model';

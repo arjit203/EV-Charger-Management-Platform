@@ -59,6 +59,8 @@ against the backend and reports the real MongoDB connection state.
 | `npm run build`     | Type-check and compile to `dist/`          |
 | `npm start`         | Run the compiled build                     |
 | `npm run typecheck` | Type-check only, no output                 |
+| `npm run seed:admin`| Create the first `super_admin` (idempotent) |
+| `npm run seed:demo` | Seed two demo companies + staff (idempotent) |
 
 **frontend/**
 
@@ -75,9 +77,9 @@ against the backend and reports the real MongoDB connection state.
 | #     | Module                          | Status      |
 | ----- | ------------------------------- | ----------- |
 | 0     | Project Foundation              | ✅ Complete |
-| 1     | Authentication & RBAC           | Not started |
-| 2     | Company / CPO Management (MVP)  | Not started |
-| 3     | User / EV Owner Management      | Not started |
+| 1     | Authentication & RBAC           | ✅ Complete |
+| 2     | Company / CPO Management (MVP)  | ✅ Complete |
+| 3     | User / EV Owner Management      | ✅ Complete |
 | 4     | Station Management              | Not started |
 | 5     | Charger & Connector Management  | Not started |
 | 6     | OCPP Gateway + Simulated Charger| Not started |

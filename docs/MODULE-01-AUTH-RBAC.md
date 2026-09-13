@@ -223,6 +223,13 @@ endpoint is only protected by this component, it is not protected.
   again after that.
 - `JWT_SECRET` is required at boot — unlike the database, there is no safe degraded mode
   for auth, so a missing secret stops the process.
+- **Accepted performance cost.** Reloading the user on every authenticated request adds one
+  indexed `findById` to every API call, and from Module 8 to every socket handshake. This is
+  a conscious trade — working revocation over a few saved milliseconds — not an oversight.
+  The token's `role`/`companyId` claims are therefore informational only; nothing authorises
+  against them. Do not "fix" this with a Redis user cache when Module 8 makes things feel
+  slow: a cache reopens the exact staleness window the reload closes. Changing it is a
+  deliberate Module 16 decision requiring a cache-invalidation story.
 
 ## 12. What Module 2 will add
 
