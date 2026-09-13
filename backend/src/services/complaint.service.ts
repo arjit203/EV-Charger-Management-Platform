@@ -25,6 +25,7 @@ import { ApiError } from '../utils/ApiError';
 import { applyCompanyScope } from '../utils/companyScope';
 import { applyOwnerScope } from '../utils/ownerScope';
 import { logger } from '../utils/logger';
+import * as notify from './notification.service';
 import type { Paginated } from '../types/pagination';
 import type { AuthUser } from '../types/express';
 import type {
@@ -190,6 +191,8 @@ export async function createComplaint(
     SCOPE,
     `Complaint ${String(complaint._id)} opened (${input.category}) by ${actor.email}`,
   );
+
+  void notify.complaintCreated(complaint);
 
   return toPublicComplaint(complaint);
 }
@@ -382,6 +385,10 @@ export async function setComplaintStatus(
   await complaint.save();
 
   logger.info(SCOPE, `Complaint ${complaintId}: ${previous} -> ${status} by ${actor.email}`);
+
+  // The dedupe key carries the NEW STATUS, so all three transitions produce three notifications
+  // rather than one. This is the case that ruled out keying on ids alone.
+  void notify.complaintUpdated(complaint, status, complaint.resolution);
 
   return toPublicComplaint(complaint);
 }

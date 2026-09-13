@@ -101,7 +101,7 @@ with no active price cannot sell electricity.
 | 9     | Tariff / Pricing                | ✅ Complete |
 | 10    | Wallet & Payments               | ✅ Complete |
 | 11    | Complaints / Support            | ✅ Complete |
-| 12    | Notifications                   | Not started |
+| 12    | Notifications                   | ✅ Complete |
 | 13    | Analytics & Dashboards          | Not started |
 | 14    | Charging Station Map            | Not started |
 | 15    | Admin / Operations Dashboard    | Not started |

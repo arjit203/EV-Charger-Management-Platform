@@ -18,24 +18,25 @@
  *    If nobody is listening the event simply evaporates, which is correct: Socket.IO is a
  *    notification channel, not a queue.
  *
- * THE FOUR EVENTS. Each maps to exactly one real field that already exists:
+ * THE EVENTS. Each maps to exactly one real thing that already exists:
  *
  *   connector:statusChanged        Connector.status            (operational — the plug)
  *   charger:connectivityChanged    Charger.isOnline            (connectivity — the socket)
  *   session:statusChanged          ChargingSession.status      (the business transaction)
  *   session:meterUpdate            a stored MeterReading       (energy)
+ *   notification:new               a stored Notification       (Module 12)
  *
  * `charger:statusChanged` is deliberately absent. Module 6's D2 put operational state on the
  * CONNECTOR and left the charger holding only connectivity; an event by that name would either
  * duplicate connector status or invent a field that does not exist. `session:started` and
  * `session:completed` are absent for the same reason `charger:faulted` is — they are values of
- * a status the payload already carries, not distinct occurrences. Four events, four owners.
+ * a status the payload already carries, not distinct occurrences. Every event has one owner.
  */
 
 import type { Server } from 'socket.io';
 
 import { logger } from '../utils/logger';
-import { companyAudience, sessionAudience } from './rooms';
+import { companyAudience, sessionAudience, userRoom } from './rooms';
 import type { PublicChargingSession } from '../models/chargingSession.model';
 
 const SCOPE = 'realtime';
@@ -161,6 +162,26 @@ export interface MeterUpdateEvent {
  */
 export function emitMeterUpdate(event: MeterUpdateEvent): void {
   publish(sessionAudience(event.companyId, event.userId), 'session:meterUpdate', event);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Notifications (Module 12)                                                  */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Deliver one notification to one person.
+ *
+ * REUSES THE `user:{id}` ROOM Module 8 already created — the one every socket auto-joins on
+ * connection from its verified identity. No new room type, no new authentication, and the
+ * security question is already answered: rooms are server-assigned and there is no join
+ * listener, so a driver cannot subscribe to someone else's notifications because there is no
+ * code path to ask.
+ *
+ * Best-effort, like every other emit here. The database ROW is the notification; this is
+ * delivery. A client that was offline finds it waiting on next load.
+ */
+export function emitNotification(userId: string, notification: unknown): void {
+  publish([userRoom(userId)], 'notification:new', { notification });
 }
 
 /* -------------------------------------------------------------------------- */

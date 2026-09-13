@@ -29,6 +29,7 @@ import {
 } from '../constants/session';
 import { logger } from '../utils/logger';
 import * as realtime from '../realtime/publisher';
+import * as notify from './notification.service';
 import { settleSession } from './payment.service';
 
 const SCOPE = 'session';
@@ -155,6 +156,7 @@ export async function onStartTransaction(
 
   // AFTER the save. This is the transition the driver has been waiting on since the 202.
   realtime.emitSessionStatus(toPublicChargingSession(session));
+  void notify.sessionStarted(session);
 
   return { session, accepted: true };
 }
@@ -302,6 +304,7 @@ export async function onStopTransaction(
   );
 
   realtime.emitSessionStatus(toPublicChargingSession(session));
+  void notify.sessionCompleted(session);
 
   /*
    * MODULE 10 — settle the charge, inline and BEST-EFFORT.
@@ -372,6 +375,7 @@ export async function failOpenSessionsForCharger(
     // A driver watching a live session must be told it died, not left staring at a stale
     // "charging" screen until they refresh.
     realtime.emitSessionStatus(toPublicChargingSession(session));
+    void notify.sessionFailed(session);
   }
 
   return open.length;
@@ -406,6 +410,7 @@ export async function sweepUnconfirmedSessions(): Promise<number> {
     logger.warn(SCOPE, `Session ${String(session._id)} failed: start not confirmed`);
 
     realtime.emitSessionStatus(toPublicChargingSession(session));
+    void notify.sessionFailed(session);
   }
 
   return stale.length;

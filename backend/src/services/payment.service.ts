@@ -33,6 +33,7 @@ import { logger } from '../utils/logger';
 import { formatPaise } from '../utils/money';
 import * as provider from '../payments/razorpay';
 import { applyMovement, getOrCreateWallet } from './wallet.service';
+import * as notify from './notification.service';
 import type { Paginated } from '../types/pagination';
 import type { AuthUser } from '../types/express';
 
@@ -243,6 +244,8 @@ export async function verifyAndCredit(
 
   // A top-up is the moment an unpayable debt may have become payable. Fire-and-forget: the
   // recharge already succeeded and must not be failed by a settlement problem.
+  void notify.walletRecharged(settled.userId, settled._id, settled.amountPaise);
+
   void settleOutstandingForUser(String(settled.userId)).catch((error: unknown) =>
     logger.error(SCOPE, 'Post-recharge settlement failed', error),
   );
@@ -451,8 +454,16 @@ export async function settleSession(sessionId: string): Promise<SettlementResult
       SCOPE,
       `Session ${sessionId} unpaid: wallet short of ${formatPaise(amountPaise)} (attempt ${payment.attempts})`,
     );
+
+    /*
+     * Told ONCE, not once per sweep. The settlement sweeper retries every 15 seconds for as long
+     * as the balance is short, so the dedupe key `session:<id>:pending` is what stands between a
+     * driver and four notifications a minute, indefinitely.
+     */
+    void notify.paymentPending(charging, amountPaise);
   } else if (outcome.status === 'paid') {
     logger.info(SCOPE, `Session ${sessionId} settled: ${formatPaise(amountPaise)}`);
+    void notify.paymentSucceeded(charging, amountPaise);
   }
   // 'skipped' means a concurrent attempt won the claim and our debit was rolled back. Nothing
   // to record — the other attempt logs the settlement.

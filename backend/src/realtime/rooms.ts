@@ -38,20 +38,37 @@ export const PLATFORM_ROOM = 'platform';
 /**
  * Which rooms this user belongs in — derived purely from the verified identity.
  *
- * A driver gets ONLY their personal room. That is what makes cross-company charging work
- * safely: a driver charging at company B's station is never placed in `company:B`, so they see
- * their own session and none of B's other traffic.
+ * A driver gets no company room. That is what makes cross-company charging work safely: a driver
+ * charging at company B's station is never placed in `company:B`, so they see their own traffic
+ * and none of B's.
+ *
+ * EVERY SOCKET JOINS ITS OWN `user:{id}` ROOM (Module 12, flagged change to Module 8).
+ *
+ * Originally only drivers did, because the only thing addressed to a person was a driver's own
+ * session. Module 12 broke that assumption: a `complaint_created` notification is addressed to a
+ * specific STAFF MEMBER, and staff were in `company:{id}` only — so the row was written and the
+ * live delivery silently went nowhere. A test caught it.
+ *
+ * The right way to think about it: the user room is about WHO YOU ARE, the company and platform
+ * rooms are about WHAT YOU CAN SEE. Everyone has the first.
+ *
+ * This widens nothing it should not. The only other thing emitted to a user room is a session
+ * event, addressed with the DRIVER's id — staff do not have charging sessions, so a staff member
+ * in their own room receives nothing extra.
  */
 export function roomsFor(user: AuthUser): string[] {
-  if (user.role === ROLES.SUPER_ADMIN) return [PLATFORM_ROOM];
+  // Always. See the note above.
+  const rooms = [userRoom(user.id)];
 
-  if (user.role === ROLES.CPO_ADMIN || user.role === ROLES.OPERATOR) {
-    // resolveCompanyScope would throw for a staff member with no company; that case is already
-    // rejected at the handshake, so this is only ever reached with a company present.
-    return user.companyId ? [companyRoom(user.companyId)] : [];
+  if (user.role === ROLES.SUPER_ADMIN) {
+    rooms.push(PLATFORM_ROOM);
+  } else if (user.role === ROLES.CPO_ADMIN || user.role === ROLES.OPERATOR) {
+    // A staff member with no company is already rejected at the handshake, so this is only ever
+    // reached with one present.
+    if (user.companyId) rooms.push(companyRoom(user.companyId));
   }
 
-  return [userRoom(user.id)];
+  return rooms;
 }
 
 /**

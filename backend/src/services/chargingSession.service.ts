@@ -40,6 +40,7 @@ import { applyCompanyScope } from '../utils/companyScope';
 import { applyOwnerScope } from '../utils/ownerScope';
 import { logger } from '../utils/logger';
 import * as realtime from '../realtime/publisher';
+import * as notify from './notification.service';
 import { sendRemoteStart, sendRemoteStop } from '../ocpp/commands';
 import * as registry from '../ocpp/registry';
 import { findActiveTariffForCompany } from './tariff.service';
@@ -396,6 +397,7 @@ async function markFailed(
   await session.save();
 
   realtime.emitSessionStatus(toPublicChargingSession(session));
+  void notify.sessionFailed(session);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -464,6 +466,7 @@ export async function stopSession(
     await session.save();
 
     realtime.emitSessionStatus(toPublicChargingSession(session));
+    void notify.sessionFailed(session);
 
     return toPublicChargingSession(session);
   }

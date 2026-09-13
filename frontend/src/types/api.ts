@@ -631,3 +631,46 @@ export interface ComplaintDetailPayload {
   /** Null unless the complaint is anchored to a charging session. */
   session: DisputedSession | null;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Module 12 — notifications                                                  */
+/* -------------------------------------------------------------------------- */
+
+export type NotificationType =
+  | 'charging_started'
+  | 'charging_completed'
+  | 'charging_failed'
+  | 'payment_success'
+  | 'payment_pending'
+  | 'wallet_recharged'
+  | 'complaint_updated'
+  | 'complaint_created';
+
+export type NotificationReferenceType = 'charging_session' | 'complaint' | 'payment';
+
+/**
+ * An in-app message for exactly one person.
+ *
+ * `referenceType` + `referenceId` are what the UI navigates by — there is deliberately no
+ * embedded copy of the session or complaint, so the page fetches fresh detail through the
+ * existing scoped endpoints instead of rendering a stale snapshot.
+ */
+export interface AppNotification {
+  id: string;
+  type: NotificationType;
+  title: string;
+  message: string;
+  referenceType: NotificationReferenceType;
+  referenceId: string;
+  isRead: boolean;
+  readAt: string | null;
+  createdAt: string;
+}
+
+export interface UnreadCountPayload {
+  unreadCount: number;
+}
+
+export interface NotificationPayload {
+  notification: AppNotification;
+}

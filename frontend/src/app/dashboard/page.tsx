@@ -13,6 +13,7 @@ import { useRouter } from 'next/navigation';
 
 import { RequireAuth } from '@/components/RequireAuth';
 import { StatusBadge } from '@/components/StatusBadge';
+import { NotificationBell } from '@/components/NotificationBell';
 import { useAuth } from '@/context/AuthContext';
 import { ROLE_LABELS, type Role } from '@/types/api';
 
@@ -61,6 +62,7 @@ const ROLE_LINKS: Record<Role, { href: string; label: string }[]> = {
     { href: '/sessions', label: 'Charging sessions' },
     { href: '/tariffs', label: 'Tariffs' },
     { href: '/complaints', label: 'Support' },
+    { href: '/notifications', label: 'Notifications' },
     { href: '/users', label: 'Users' },
     { href: '/profile', label: 'My profile' },
   ],
@@ -72,6 +74,7 @@ const ROLE_LINKS: Record<Role, { href: string; label: string }[]> = {
     { href: '/sessions', label: 'Charging sessions' },
     { href: '/tariffs', label: 'Tariffs' },
     { href: '/complaints', label: 'Support' },
+    { href: '/notifications', label: 'Notifications' },
     { href: '/users', label: 'Users' },
     { href: '/profile', label: 'My profile' },
   ],
@@ -86,6 +89,7 @@ const ROLE_LINKS: Record<Role, { href: string; label: string }[]> = {
     { href: '/sessions', label: 'Charging sessions' },
     { href: '/tariffs', label: 'Tariffs' },
     { href: '/complaints', label: 'Support' },
+    { href: '/notifications', label: 'Notifications' },
     { href: '/profile', label: 'My profile' },
   ],
   // Module 7 is where the driver stops being a spectator: starting a charge is the first
@@ -94,6 +98,7 @@ const ROLE_LINKS: Record<Role, { href: string; label: string }[]> = {
     { href: '/charge', label: 'Start charging' },
     { href: '/wallet', label: 'Wallet' },
     { href: '/complaints', label: 'Support' },
+    { href: '/notifications', label: 'Notifications' },
     { href: '/sessions', label: 'My charging' },
     { href: '/my-vehicles', label: 'My vehicles' },
     { href: '/profile', label: 'My profile' },
@@ -116,17 +121,21 @@ function DashboardContent() {
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-xs font-medium uppercase tracking-widest text-neutral-500">
-            EV-CMS &middot; Module 1
+            EV-CMS
           </p>
           <h1 className="mt-1 text-2xl font-semibold">Welcome, {user.name}</h1>
         </div>
-        <button
-          type="button"
-          onClick={handleLogout}
-          className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm font-medium transition-colors hover:bg-neutral-500/10 dark:border-neutral-700"
-        >
-          Sign out
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Module 12 — live unread badge, fed by the user room Module 8 already assigns. */}
+          <NotificationBell />
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm font-medium transition-colors hover:bg-neutral-500/10 dark:border-neutral-700"
+          >
+            Sign out
+          </button>
+        </div>
       </header>
 
       <section className="rounded-xl border border-neutral-200 p-5 dark:border-neutral-800">
