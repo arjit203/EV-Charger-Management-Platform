@@ -42,6 +42,7 @@ import { logger } from '../utils/logger';
 import * as realtime from '../realtime/publisher';
 import { sendRemoteStart, sendRemoteStop } from '../ocpp/commands';
 import * as registry from '../ocpp/registry';
+import { findActiveTariffForCompany } from './tariff.service';
 import type { Paginated } from '../types/pagination';
 import type { AuthUser } from '../types/express';
 import type { StartSessionInput, ListSessionsQuery } from '../validators/session.validator';
@@ -117,6 +118,16 @@ export interface ConnectorChargingView {
   isOnline: boolean;
   stationName: string;
   stationAddress: string;
+  /**
+   * MODULE 9 — what this plug costs, in integer paise per kWh.
+   *
+   * Answered HERE rather than by a driver-facing tariff endpoint. This lookup already exists to
+   * tell a driver whether they can start; the price is the other half of that same question, and
+   * a second endpoint returning the same number would be duplicate surface.
+   *
+   * Null when the operator has published no price — in which case `canStart` is false too.
+   */
+  pricePerKwhPaise: number | null;
   /** The single answer the app actually needs before showing a Start button. */
   canStart: boolean;
   unavailableReason: string | null;
@@ -146,6 +157,14 @@ export async function getConnectorForCharging(
 
   const { canStart, reason } = assessStartability(connector.status, charger.status, charger.isOnline);
 
+  // At most one can match — the partial unique index guarantees it.
+  const tariff = await findActiveTariffForCompany(charger.companyId);
+
+  // No published price means no charging, so the verdict has to account for it as well as the
+  // three hardware states. Checked after them so a faulted plug reports the hardware fault,
+  // which is what a driver standing in front of it actually needs to hear.
+  const priced = Boolean(tariff);
+
   return {
     connectorId: String(connector._id),
     connectorNumber: connector.connectorNumber,
@@ -157,8 +176,9 @@ export async function getConnectorForCharging(
     isOnline: charger.isOnline,
     stationName: station.name,
     stationAddress: station.address,
-    canStart,
-    unavailableReason: reason,
+    pricePerKwhPaise: tariff ? tariff.pricePerKwhPaise : null,
+    canStart: canStart && priced,
+    unavailableReason: reason ?? (priced ? null : 'This operator has not published a price yet.'),
   };
 }
 
@@ -243,6 +263,27 @@ export async function startSession(
 
   const vehicleId = await resolveVehicle(actor, input.vehicleId ?? null, connector.connectorType);
 
+  /*
+   * MODULE 9 PRECONDITION (flagged addition to Module 7's start flow).
+   *
+   * No price, no charge. If the station's company has no active tariff we refuse the start
+   * outright rather than letting a car draw power that cannot be priced. Allowing it would
+   * hand Module 10 a completed session with an undefined amount - a record it can neither
+   * settle nor explain.
+   *
+   * With the partial unique index on Tariff this is the ONLY place "no tariff" can surface:
+   * at most one active tariff can exist per company, so there is no ambiguity at completion
+   * time, only this precondition at the start.
+   */
+  const tariff = await findActiveTariffForCompany(charger.companyId);
+
+  if (!tariff) {
+    throw ApiError.conflict(
+      'Charging is unavailable at this station: its operator has not published a price.',
+      { companyId: String(charger.companyId) },
+    );
+  }
+
   const idTag = mintIdTag();
 
   let session: ChargingSessionDocument;
@@ -260,6 +301,21 @@ export async function startSession(
       idTag,
       status: 'initiating',
       requestedAt: new Date(),
+
+      /*
+       * THE RATE IS SNAPSHOTTED HERE, at start, not read at completion.
+       *
+       * Copying the VALUE means an admin editing or deactivating this tariff while the car is
+       * charging cannot reprice a session already in progress. A `tariffId` reference alone
+       * would leave the price of a running charge at the mercy of whoever edits the price
+       * sheet next.
+       *
+       * The id is kept beside it as PROVENANCE - "which price sheet said so" - for Module 11's
+       * billing disputes. The snapshot prices the session; the id explains it. Neither one
+       * replaces the other.
+       */
+      appliedTariffId: tariff._id,
+      appliedPricePerKwhPaise: tariff.pricePerKwhPaise,
     });
   } catch (error) {
     if (isDuplicateKeyError(error)) {

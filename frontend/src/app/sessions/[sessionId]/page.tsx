@@ -36,6 +36,7 @@ import {
 import { useAuth } from '@/context/AuthContext';
 import { useAsyncData } from '@/hooks/useAsyncData';
 import { toMessage } from '@/lib/formatApiError';
+import { estimateAmountPaise, formatPaise, formatRate } from '@/lib/money';
 import { getSession, getSessionReadings, stopSession } from '@/services/session.service';
 import type { ChargingSession, MeterReading } from '@/types/api';
 
@@ -178,6 +179,28 @@ function SessionDetail({
           <dd className="mt-0.5 font-medium">{formatWhen(session.endedAt)}</dd>
         </div>
         <div>
+          <dt className="text-xs text-neutral-500">{isOpen ? 'Cost so far' : 'Amount'}</dt>
+          <dd className="mt-0.5 font-medium tabular-nums">
+            {/*
+              While charging this is an ESTIMATE, computed right here from two numbers the page
+              already has: the energy Module 8 streams on every meter update, and the rate that
+              was snapshotted onto the session when it started. No new endpoint, no new event.
+
+              Once the session ends, `amountPaise` is the authoritative figure the server
+              calculated from the final meter reading - so the display switches to it.
+            */}
+            {session.amountPaise !== null
+              ? formatPaise(session.amountPaise)
+              : (() => {
+                  const estimate = estimateAmountPaise(
+                    session.energyConsumedKwh,
+                    session.appliedPricePerKwhPaise,
+                  );
+                  return estimate === null ? '—' : `~${formatPaise(estimate)}`;
+                })()}
+          </dd>
+        </div>
+        <div>
           <dt className="text-xs text-neutral-500">Power now</dt>
           <dd className="mt-0.5 font-medium">
             {isOpen && latest?.powerKw !== null && latest?.powerKw !== undefined
@@ -186,6 +209,13 @@ function SessionDetail({
           </dd>
         </div>
       </dl>
+
+      {session.appliedPricePerKwhPaise !== null && (
+        <p className="text-sm text-neutral-500">
+          Charged at {formatRate(session.appliedPricePerKwhPaise)}
+          {isOpen ? ' — the rate is fixed for this session even if the price sheet changes.' : ''}
+        </p>
+      )}
 
       {session.stopReason && (
         <p className="text-sm text-neutral-500">

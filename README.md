@@ -57,7 +57,10 @@ against the backend and reports the real MongoDB connection state.
 
 To watch a full charge live: open **Live operations** as an admin in one browser and **Start
 charging** as a driver in another. Press start, and both update as the charger reports — status
-flips to charging and the energy figure climbs with no page refresh anywhere.
+flips to charging, and the energy and cost climb with no page refresh anywhere.
+
+The demo companies each publish a tariff (`npm run seed:demo`), because since Module 9 a company
+with no active price cannot sell electricity.
 
 ## Useful scripts
 
@@ -95,7 +98,7 @@ flips to charging and the energy figure climbs with no page refresh anywhere.
 | 6     | OCPP Gateway + Simulated Charger| ✅ Complete |
 | 7     | Charging Sessions               | ✅ Complete |
 | 8     | Real-Time Monitoring            | ✅ Complete |
-| 9     | Tariff / Pricing                | Not started |
+| 9     | Tariff / Pricing                | ✅ Complete |
 | 10    | Wallet & Payments               | Not started |
 | 11    | Complaints / Support            | Not started |
 | 12    | Notifications                   | Not started |

@@ -368,6 +368,23 @@ export interface ChargingSession {
   durationSeconds: number | null;
   stopReason: StopReason | null;
   failureReason: string | null;
+
+  /* ---------------------------- Module 9: pricing --------------------------- */
+
+  /** Provenance — WHICH price sheet applied. The snapshot below is what priced it. */
+  appliedTariffId: string | null;
+  /**
+   * The rate in integer paise, frozen when the session started.
+   *
+   * This is also what makes a live cost estimate possible with no extra backend work: multiply
+   * it by the `energyConsumedKwh` that Module 8 already streams.
+   */
+  appliedPricePerKwhPaise: number | null;
+  /** Integer paise. Null until the session ends. Computed server-side, always. */
+  amountPaise: number | null;
+  /** Display convenience only. Never calculate with this. */
+  amountRupees: number | null;
+
   createdAt: string;
   updatedAt: string;
 }
@@ -393,6 +410,8 @@ export interface ConnectorChargingView {
   isOnline: boolean;
   stationName: string;
   stationAddress: string;
+  /** Module 9 — integer paise per kWh, or null if the operator has published no price. */
+  pricePerKwhPaise: number | null;
   canStart: boolean;
   unavailableReason: string | null;
 }
@@ -412,4 +431,34 @@ export interface ReadingsPayload {
 
 export interface ConnectorChargingPayload {
   connector: ConnectorChargingView;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Module 9 — tariffs                                                         */
+/* -------------------------------------------------------------------------- */
+
+export type TariffStatus = 'active' | 'inactive';
+
+/**
+ * A company's price sheet.
+ *
+ * COMPANY-LEVEL, not per-station: one rate applies to every station the company owns, and at
+ * most one tariff can be active at a time (enforced by a database index, not by the UI).
+ */
+export interface Tariff {
+  id: string;
+  companyId: string;
+  name: string;
+  /** INTEGER paise per kWh. ₹12.00 is 1200. The unit is in the name for a reason. */
+  pricePerKwhPaise: number;
+  /** The same number in rupees, for display and for pre-filling a form. */
+  pricePerKwhRupees: number;
+  status: TariffStatus;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TariffPayload {
+  tariff: Tariff;
 }

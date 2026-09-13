@@ -13,6 +13,7 @@
 
 import { Schema, model, type HydratedDocument, type Model, type Types } from 'mongoose';
 
+import { calculateAmountPaise, paiseToRupees } from '../utils/money';
 import {
   SESSION_STATUSES,
   STOP_REASONS,
@@ -51,6 +52,13 @@ export interface IChargingSession {
 
   stopReason: StopReason | null;
   failureReason: string | null;
+
+  /* ----------------------------- Module 9: pricing ---------------------------- */
+
+  /** Provenance only. The snapshot below is what actually prices the session. */
+  appliedTariffId: Types.ObjectId | null;
+  appliedPricePerKwhPaise: number | null;
+  amountPaise: number | null;
 
   createdAt: Date;
   updatedAt: Date;
@@ -121,9 +129,80 @@ const chargingSessionSchema = new Schema<IChargingSession, ChargingSessionModel>
 
     stopReason: { type: String, enum: STOP_REASONS, default: null },
     failureReason: { type: String, maxlength: 200, default: null },
+
+    /* ---------------------------- Module 9: pricing --------------------------- */
+
+    /**
+     * WHICH tariff was in force. Provenance, not pricing.
+     *
+     * Kept alongside the snapshot below so an operator answering "why was I charged this?" in
+     * Module 11 can point at the actual tariff document. Do NOT "simplify" this away on the
+     * grounds that the snapshot already holds the number - the number says WHAT was charged,
+     * this says WHICH price sheet said so, and a dispute needs both.
+     */
+    appliedTariffId: { type: Schema.Types.ObjectId, ref: 'Tariff', default: null },
+
+    /**
+     * THE RATE, SNAPSHOTTED WHEN THE SESSION STARTED. This is what prices the session.
+     *
+     * A `tariffId` reference alone would be wrong, and subtly so: an admin editing the rate
+     * while a car is charging would retroactively reprice a session already in progress. Two
+     * drivers plugging in at the same moment could be billed differently for the same
+     * electricity depending on when the edit landed.
+     *
+     * Copying the VALUE at start time locks the price the instant charging is requested.
+     * Whatever happens to the Tariff document afterwards - edited, deactivated, superseded -
+     * cannot move this number. Same reasoning as Module 5's denormalised companyId
+     * (denormalise when the source cannot be trusted to stay stable), applied to a field that
+     * is explicitly EXPECTED to change.
+     */
+    appliedPricePerKwhPaise: { type: Number, default: null, min: 0 },
+
+    /**
+     * The final charge, in integer paise. Null until the session reaches a terminal state.
+     *
+     * Written by the pre('save') hook below, never by a caller, and NEVER from client input.
+     */
+    amountPaise: { type: Number, default: null, min: 0 },
   },
   { timestamps: true },
 );
+
+/**
+ * PRICE THE SESSION THE MOMENT IT ENDS - however it ends.
+ *
+ * This is a schema hook rather than a line in each service on purpose. A session reaches a
+ * terminal state in FIVE places across two files:
+ *
+ *   sessionEvents.onStopTransaction            the normal end
+ *   sessionEvents.failOpenSessionsForCharger   charger vanished mid-charge
+ *   sessionEvents.sweepUnconfirmedSessions     start never confirmed
+ *   chargingSession.markFailed                 charger rejected or timed out
+ *   chargingSession.stopSession                stop requested while the charger was offline
+ *
+ * Pricing at each is five chances to forget, and a sixth call site added in a later module
+ * would silently produce an unpriced session that Module 10 cannot settle. Putting it here
+ * makes it structurally impossible to skip - the same instinct as the partial unique indexes,
+ * applied to a different kind of correctness problem.
+ *
+ * FAILED SESSIONS ARE PRICED TOO. A session that died after delivering 0.4 kWh delivered real
+ * electricity; billing zero would mean giving energy away on every network blip. A failure with
+ * no energy prices at zero on its own, with no special case - which is why the condition below
+ * is about the STATUS, not about how the session ended.
+ *
+ * Guarded on `amountPaise === null`, so a later save that touches some unrelated field cannot
+ * recompute and overwrite a settled amount. Once priced, the number is final.
+ *
+ * Pure arithmetic on fields already present: no I/O, no await, no ordering hazard.
+ */
+chargingSessionSchema.pre('save', function computeAmount() {
+  const isTerminal = this.status === 'completed' || this.status === 'failed';
+
+  if (!isTerminal || this.amountPaise !== null) return;
+  if (this.appliedPricePerKwhPaise === null) return;
+
+  this.amountPaise = calculateAmountPaise(this.energyConsumedWh, this.appliedPricePerKwhPaise);
+});
 
 /**
  * THE CONCURRENCY GUARANTEE — one open session per connector, enforced by MongoDB.
@@ -212,6 +291,18 @@ export interface PublicChargingSession {
   durationSeconds: number | null;
   stopReason: StopReason | null;
   failureReason: string | null;
+
+  /** Module 9. Null until the session ends. */
+  appliedTariffId: string | null;
+  appliedPricePerKwhPaise: number | null;
+  amountPaise: number | null;
+  /**
+   * Display convenience. Also what lets the browser show a LIVE cost estimate while charging:
+   * Module 8 already streams `energyConsumedKwh`, so the estimate is that times the rate,
+   * computed client-side with no new backend event.
+   */
+  amountRupees: number | null;
+
   createdAt: string;
   updatedAt: string;
 }
@@ -247,6 +338,10 @@ export function toPublicChargingSession(
         : null,
     stopReason: session.stopReason,
     failureReason: session.failureReason,
+    appliedTariffId: session.appliedTariffId ? String(session.appliedTariffId) : null,
+    appliedPricePerKwhPaise: session.appliedPricePerKwhPaise,
+    amountPaise: session.amountPaise,
+    amountRupees: session.amountPaise === null ? null : paiseToRupees(session.amountPaise),
     createdAt: session.createdAt.toISOString(),
     updatedAt: session.updatedAt.toISOString(),
   };

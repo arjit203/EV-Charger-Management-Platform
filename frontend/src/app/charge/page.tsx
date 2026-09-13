@@ -28,6 +28,7 @@ import {
   startSession,
 } from '@/services/session.service';
 import { listMyVehicles } from '@/services/vehicle.service';
+import { formatRate } from '@/lib/money';
 import type { ConnectorChargingView, Vehicle } from '@/types/api';
 
 function ConnectorCard({
@@ -91,6 +92,16 @@ function ConnectorCard({
           <dd className="mt-0.5 font-medium">{connector.powerKw} kW</dd>
         </div>
       </dl>
+
+      {/* The price a driver is agreeing to, shown BEFORE they commit to starting. */}
+      <div className="mt-5 rounded-xl bg-neutral-500/5 p-4">
+        <p className="text-xs uppercase tracking-wide text-neutral-500">Charging price</p>
+        <p className="mt-1 text-2xl font-semibold tabular-nums">
+          {connector.pricePerKwhPaise === null
+            ? 'Not published'
+            : formatRate(connector.pricePerKwhPaise)}
+        </p>
+      </div>
 
       {!connector.canStart ? (
         <p className="mt-5 rounded-lg bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-400">

@@ -1,6 +1,7 @@
 import Link from 'next/link';
 
 import { StatusBadge, type Tone } from '@/components/StatusBadge';
+import { formatPaise } from '@/lib/money';
 import type { ChargingSession, SessionStatus } from '@/types/api';
 
 /**
@@ -67,8 +68,11 @@ export function SessionRow({ session }: { session: ChargingSession }) {
       className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-neutral-200 p-4 transition-colors hover:bg-neutral-500/5 dark:border-neutral-800"
     >
       <div className="min-w-0">
-        <p className="truncate font-medium">
+        <p className="truncate font-medium tabular-nums">
           {formatEnergy(session)}
+          {session.amountPaise !== null && (
+            <span className="ml-3 text-neutral-500">{formatPaise(session.amountPaise)}</span>
+          )}
           <span className="ml-2 text-xs font-normal text-neutral-500">
             connector {session.connectorNumber}
           </span>

@@ -15,6 +15,7 @@ import { connectDatabase, disconnectDatabase } from '../config/db';
 import { Company } from '../models/company.model';
 import { Station } from '../models/station.model';
 import { Charger } from '../models/charger.model';
+import { Tariff } from '../models/tariff.model';
 import { Connector } from '../models/connector.model';
 import { User } from '../models/user.model';
 import { ROLES } from '../constants/roles';
@@ -29,6 +30,9 @@ const DEMO = [
     legalName: 'Livanto Green Energy Pvt Ltd',
     contactEmail: 'ops@livanto.local',
     address: { line1: '1 Connaught Place', city: 'New Delhi', state: 'Delhi', country: 'India', postalCode: '110001' },
+    // Module 9. Integer PAISE per kWh — 1200 = ₹12.00/kWh, a realistic Indian DC rate.
+    tariffName: 'Standard DC',
+    pricePerKwhPaise: 1200,
     staff: [
       { name: 'Livanto CPO Admin', email: 'cpo@livanto.local', role: ROLES.CPO_ADMIN, password: 'Cpo@12345' },
       { name: 'Livanto Operator', email: 'ops@livanto.local', role: ROLES.OPERATOR, password: 'Ops@12345' },
@@ -53,6 +57,9 @@ const DEMO = [
     legalName: 'Sharma Energy Solutions LLP',
     contactEmail: 'ops@sharma.local',
     address: { line1: '22 Andheri East', city: 'Mumbai', state: 'Maharashtra', country: 'India', postalCode: '400069' },
+    // A different rate from Livanto, so a cross-company test can tell the two apart.
+    tariffName: 'Mumbai Standard',
+    pricePerKwhPaise: 1450,
     staff: [
       { name: 'Sharma CPO Admin', email: 'cpo@sharma.local', role: ROLES.CPO_ADMIN, password: 'Cpo@12345' },
       { name: 'Sharma Operator', email: 'ops@sharma.local', role: ROLES.OPERATOR, password: 'Ops@12345' },
@@ -105,6 +112,31 @@ async function main(): Promise<void> {
         createdBy: superAdmin._id,
       });
       logger.info(SCOPE, `Created company "${demo.name}".`);
+    }
+
+    /*
+     * MODULE 9 (flagged addition): every demo company needs an ACTIVE TARIFF, because a session
+     * can no longer start at a company that has not published a price. Without this the seeded
+     * demo would look broken the moment Module 9 shipped.
+     *
+     * Rates are in integer PAISE - 1200 is Rs12.00/kWh. Never rupees, never a float.
+     */
+    const existingTariff = await Tariff.findOne({ companyId: company._id, status: 'active' });
+
+    if (existingTariff) {
+      logger.info(SCOPE, `  tariff already active (${existingTariff.pricePerKwhPaise} paise/kWh)`);
+    } else {
+      const tariff = await Tariff.create({
+        companyId: company._id,
+        name: demo.tariffName,
+        pricePerKwhPaise: demo.pricePerKwhPaise,
+        status: 'active',
+        createdBy: superAdmin._id,
+      });
+      logger.info(
+        SCOPE,
+        `  created tariff "${tariff.name}" at Rs${(tariff.pricePerKwhPaise / 100).toFixed(2)}/kWh`,
+      );
     }
 
     for (const site of demo.stations) {
