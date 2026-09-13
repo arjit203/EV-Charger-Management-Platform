@@ -155,6 +155,22 @@ paymentTransactionSchema.index({ companyId: 1, createdAt: -1 });
 /** The settlement sweeper's query: unpaid session debits, oldest first. */
 paymentTransactionSchema.index({ purpose: 1, status: 1, updatedAt: 1 });
 
+/**
+ * MODULE 13 - the revenue query, exactly.
+ *
+ * Analytics matches `{ companyId, purpose: 'session_debit', status: 'paid', paidAt: {...} }`
+ * and nothing else, on every revenue endpoint. The existing `{ companyId, createdAt }` index
+ * cannot serve it: revenue is anchored on `paidAt`, because a charge delivered on Monday and
+ * settled on Wednesday is Wednesday's money.
+ *
+ * This is the one index that makes Module 13's "live query, no cache, no rollup" decision
+ * honest rather than optimistic - the alternative to an index here is not a slower query, it
+ * is a precomputed rollup collection and a second source of truth that can drift.
+ *
+ * Additive and behaviour-neutral: no existing query plan gets worse for having it.
+ */
+paymentTransactionSchema.index({ companyId: 1, purpose: 1, status: 1, paidAt: -1 });
+
 export const PaymentTransaction = model<IPaymentTransaction, PaymentTransactionModel>(
   'PaymentTransaction',
   paymentTransactionSchema,

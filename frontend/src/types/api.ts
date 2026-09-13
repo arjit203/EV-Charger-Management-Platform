@@ -674,3 +674,107 @@ export interface UnreadCountPayload {
 export interface NotificationPayload {
   notification: AppNotification;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Module 13 — analytics                                                      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The fleet RIGHT NOW. A snapshot, not a window — see the note on `AnalyticsOverview`.
+ *
+ * Charger UTILIZATION is deliberately absent. Every session in this project is started by
+ * hand, so a busy-time-over-total-time figure would be computed from staged traffic and
+ * would look authoritative while meaning nothing.
+ */
+export interface FleetSnapshot {
+  stations: number;
+  chargers: number;
+  chargersOnline: number;
+  chargersOffline: number;
+  chargersByStatus: Record<ChargerStatus, number>;
+  connectors: number;
+  connectorsByStatus: Record<ConnectorStatus, number>;
+  activeSessions: number;
+}
+
+export interface SessionTotals {
+  total: number;
+  byStatus: Record<SessionStatus, number>;
+  energyWh: number;
+  energyKwh: number;
+}
+
+export interface RevenueTotals {
+  revenuePaise: number;
+  revenueRupees: number;
+  payments: number;
+  unpaidSessions: number;
+  unpaidPaise: number;
+  unpaidRupees: number;
+}
+
+export interface ComplaintTotals {
+  total: number;
+  byStatus: Record<ComplaintStatus, number>;
+  /** Outstanding right now, whatever day they were filed. Not windowed. */
+  openNow: number;
+}
+
+/**
+ * NOTE ON `revenue?`: the key is ABSENT for an operator, not null.
+ *
+ * An operator runs hardware; a company's income is not operational data. The server does not
+ * merely hide it — it never runs the query. `revenue === undefined` is therefore "you may not
+ * see this", which is a different statement from `revenuePaise === 0` ("nothing was earned"),
+ * and the dashboard must not collapse the two into one blank card.
+ */
+export interface AnalyticsOverview {
+  range: { from: string; to: string; days: number };
+  fleet: FleetSnapshot;
+  sessions: SessionTotals;
+  revenue?: RevenueTotals;
+  complaints: ComplaintTotals;
+}
+
+export interface DailyPoint {
+  date: string;
+  sessions: number;
+  energyWh: number;
+  energyKwh: number;
+}
+
+export interface DailyRevenuePoint {
+  date: string;
+  revenuePaise: number;
+  revenueRupees: number;
+  payments: number;
+}
+
+export interface StationBreakdown {
+  stationId: string;
+  name: string;
+  stationCode: string;
+  sessions: number;
+  energyWh: number;
+  energyKwh: number;
+  /** Absent for an operator, for the same reason as `AnalyticsOverview.revenue`. */
+  revenuePaise?: number;
+  revenueRupees?: number;
+}
+
+export interface SessionSeriesPayload {
+  range: { from: string; to: string };
+  points: DailyPoint[];
+  totals: SessionTotals;
+}
+
+export interface RevenueSeriesPayload {
+  range: { from: string; to: string };
+  points: DailyRevenuePoint[];
+  totals: RevenueTotals;
+}
+
+export interface StationAnalyticsPayload {
+  range: { from: string; to: string };
+  stations: StationBreakdown[];
+}
