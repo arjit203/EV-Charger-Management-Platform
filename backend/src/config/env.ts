@@ -100,6 +100,24 @@ export const env = {
    * path is a real behaviour that needs testing, and a test should not sit idle for it.
    */
   sessionStartTimeoutSeconds: Number.parseInt(optional('SESSION_START_TIMEOUT_SECONDS', '20'), 10),
+
+  /* ------------------------- Module 10: payments ------------------------- */
+
+  /**
+   * Razorpay TEST credentials.
+   *
+   * `keyId` is public by design — the browser needs it to open Checkout. `keySecret` and
+   * `webhookSecret` are server-only and must never be sent to a client.
+   *
+   * ALL THREE DEFAULT TO EMPTY, and that is the switch. When `keyId`/`keySecret` are absent the
+   * payment provider falls back to a deterministic stub so the check suite can run without
+   * anyone needing a Razorpay account. There is deliberately no `PAYMENTS_STUB=true` flag:
+   * a flag can be shipped by accident, whereas a real deployment cannot have working
+   * credentials AND be in stub mode at the same time.
+   */
+  razorpayKeyId: optional('RAZORPAY_KEY_ID', ''),
+  razorpayKeySecret: optional('RAZORPAY_KEY_SECRET', ''),
+  razorpayWebhookSecret: optional('RAZORPAY_WEBHOOK_SECRET', ''),
 } as const;
 
 // Keep `required` referenced for use by later modules (JWT_SECRET in Module 1, etc.)

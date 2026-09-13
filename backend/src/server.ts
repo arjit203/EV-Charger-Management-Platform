@@ -19,6 +19,7 @@ import { env } from './config/env';
 import { connectDatabase, disconnectDatabase } from './config/db';
 import { attachOcppGateway, shutdownOcppGateway } from './ocpp/gateway';
 import { attachRealtime, closeRealtime } from './realtime';
+import { startSettlementSweeper, stopSettlementSweeper } from './services/payment.service';
 import { logger } from './utils/logger';
 
 const SCOPE = 'server';
@@ -40,6 +41,15 @@ attachOcppGateway(httpServer);
  * Socket.IO takes `/socket.io`. Chargers and browsers therefore share a port and nothing more.
  */
 attachRealtime(httpServer);
+
+/*
+ * MODULE 10 — retries collection for any charge that could not be settled immediately.
+ *
+ * This is what turns "insufficient balance" from a dead end into a state that resolves itself:
+ * the session stays unpaid, and the moment the driver tops up it settles. Same one-timer-for-
+ * everything shape as Module 7's session sweeper.
+ */
+startSettlementSweeper();
 
 httpServer.listen(env.port, () => {
   logger.info(SCOPE, `EV-CMS backend listening on http://localhost:${env.port}`);
@@ -78,6 +88,7 @@ async function shutdown(signal: string): Promise<void> {
     try {
       await shutdownOcppGateway();
       await closeRealtime();
+      stopSettlementSweeper();
       await disconnectDatabase();
     } catch (error) {
       logger.error(SCOPE, 'Error while closing the database connection', error);

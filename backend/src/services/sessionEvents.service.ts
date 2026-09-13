@@ -29,6 +29,7 @@ import {
 } from '../constants/session';
 import { logger } from '../utils/logger';
 import * as realtime from '../realtime/publisher';
+import { settleSession } from './payment.service';
 
 const SCOPE = 'session';
 
@@ -301,6 +302,29 @@ export async function onStopTransaction(
   );
 
   realtime.emitSessionStatus(toPublicChargingSession(session));
+
+  /*
+   * MODULE 10 — settle the charge, inline and BEST-EFFORT.
+   *
+   * This is the fast path: the driver sees "paid" a moment after unplugging. It is deliberately
+   * not load-bearing — the settlement sweeper picks up anything this misses (a session that
+   * ended via the disconnect handler, a crash between pricing and settling), and the unique
+   * index on `chargingSessionId` means a race between the two is harmless.
+   *
+   * Fire-and-forget on purpose: a payment problem must never fail the OCPP StopTransaction that
+   * triggered it. The electricity has already flowed; refusing the charger's message would fix
+   * nothing and would make a healthy charger look broken.
+   */
+  void settleSession(String(session._id))
+    .then((result) => {
+      if (result.status === 'paid') {
+        // Re-emit so the driver's screen flips to paid without a refetch.
+        void ChargingSession.findById(session._id).then((fresh) => {
+          if (fresh) realtime.emitSessionStatus(toPublicChargingSession(fresh));
+        });
+      }
+    })
+    .catch((error: unknown) => logger.error(SCOPE, 'Inline settlement failed', error));
 
   return session;
 }

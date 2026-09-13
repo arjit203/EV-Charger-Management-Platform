@@ -384,6 +384,14 @@ export interface ChargingSession {
   amountPaise: number | null;
   /** Display convenience only. Never calculate with this. */
   amountRupees: number | null;
+  /**
+   * MODULE 10 — has this charge been collected?
+   *
+   * A SEPARATE state machine from `status`. A session can be `completed` and `unpaid` at the
+   * same time: the electricity flowed and the driver's wallet was short. That is a correct
+   * state, not an error — you cannot un-deliver electricity.
+   */
+  paymentStatus: 'unpaid' | 'paid';
 
   createdAt: string;
   updatedAt: string;
@@ -461,4 +469,90 @@ export interface Tariff {
 
 export interface TariffPayload {
   tariff: Tariff;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Module 10 — wallet & payments                                              */
+/* -------------------------------------------------------------------------- */
+
+export type WalletStatus = 'active' | 'blocked';
+export type WalletTransactionType = 'recharge' | 'session_debit' | 'refund';
+export type LedgerDirection = 'credit' | 'debit';
+export type PaymentStatus = 'pending' | 'paid' | 'failed' | 'refunded';
+export type PaymentPurpose = 'wallet_recharge' | 'session_debit';
+
+/** A driver's prepaid balance. Integer paise, like every other amount in the project. */
+export interface Wallet {
+  id: string;
+  userId: string;
+  balancePaise: number;
+  balanceRupees: number;
+  status: WalletStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** One append-only ledger row. `balanceAfter` is what makes the history reconstructible. */
+export interface WalletTransaction {
+  id: string;
+  type: WalletTransactionType;
+  direction: LedgerDirection;
+  amountPaise: number;
+  amountRupees: number;
+  balanceAfterPaise: number;
+  balanceAfterRupees: number;
+  chargingSessionId: string | null;
+  description: string;
+  createdAt: string;
+}
+
+/** A collection attempt — a Razorpay recharge, or an internal session debit. */
+export interface PaymentTransaction {
+  id: string;
+  userId: string;
+  purpose: PaymentPurpose;
+  provider: 'razorpay' | 'internal';
+  chargingSessionId: string | null;
+  companyId: string | null;
+  amountPaise: number;
+  amountRupees: number;
+  status: PaymentStatus;
+  providerOrderId: string | null;
+  providerPaymentId: string | null;
+  attempts: number;
+  failureReason: string | null;
+  paidAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WalletPayload {
+  wallet: Wallet;
+  /** What this driver still owes for charges already delivered. */
+  outstandingPaise: number;
+  outstandingRupees: number;
+}
+
+/** Everything the browser needs to open Razorpay Checkout. Note: the PUBLIC key only. */
+export interface RechargeOrder {
+  paymentId: string;
+  providerOrderId: string;
+  amountPaise: number;
+  keyId: string;
+  /** `stub` when the backend has no Razorpay credentials configured. */
+  mode: 'razorpay' | 'stub';
+}
+
+export interface RechargeOrderPayload {
+  order: RechargeOrder;
+}
+
+export interface VerifyRechargePayload {
+  payment: PaymentTransaction;
+  wallet: Wallet;
+  alreadyProcessed: boolean;
+}
+
+export interface PaymentPayload {
+  payment: PaymentTransaction;
 }

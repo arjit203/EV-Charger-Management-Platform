@@ -15,6 +15,8 @@ import { Schema, model, type HydratedDocument, type Model, type Types } from 'mo
 
 import { calculateAmountPaise, paiseToRupees } from '../utils/money';
 import {
+  SESSION_PAYMENT_STATUSES,
+  type SessionPaymentStatus,
   SESSION_STATUSES,
   STOP_REASONS,
   OPEN_SESSION_STATUSES,
@@ -59,6 +61,9 @@ export interface IChargingSession {
   appliedTariffId: Types.ObjectId | null;
   appliedPricePerKwhPaise: number | null;
   amountPaise: number | null;
+
+  /** Module 10. A denormalised projection of the session's PaymentTransaction. */
+  paymentStatus: SessionPaymentStatus;
 
   createdAt: Date;
   updatedAt: Date;
@@ -164,6 +169,31 @@ const chargingSessionSchema = new Schema<IChargingSession, ChargingSessionModel>
      * Written by the pre('save') hook below, never by a caller, and NEVER from client input.
      */
     amountPaise: { type: Number, default: null, min: 0 },
+
+    /**
+     * MODULE 10 — has this charge been collected?
+     *
+     * A SEPARATE STATE MACHINE from `status`, and the separation is the point. A session can be
+     * `completed` and `unpaid` at the same time: the electricity flowed, and the driver's wallet
+     * was short. That is a correct state, not an error - you cannot un-deliver electricity.
+     *
+     *   unpaid  priced, not yet collected (the default the moment an amount exists)
+     *   paid    settled, money actually moved
+     *
+     * There is deliberately no `failed` here. A short wallet is not a permanent failure - the
+     * session stays `unpaid` and settles by itself when the driver tops up. The detail of WHY
+     * it has not settled lives on the PaymentTransaction.
+     *
+     * DENORMALISED, and safe because of how it is written: this field and the authoritative
+     * PaymentTransaction are updated inside the SAME transaction, so they cannot drift.
+     */
+    paymentStatus: {
+      type: String,
+      enum: SESSION_PAYMENT_STATUSES,
+      required: true,
+      default: 'unpaid',
+      index: true,
+    },
   },
   { timestamps: true },
 );
@@ -202,6 +232,20 @@ chargingSessionSchema.pre('save', function computeAmount() {
   if (this.appliedPricePerKwhPaise === null) return;
 
   this.amountPaise = calculateAmountPaise(this.energyConsumedWh, this.appliedPricePerKwhPaise);
+
+  /*
+   * MODULE 10 — a session that cost nothing is settled on the spot.
+   *
+   * A start that failed before any energy flowed prices at zero. There is nothing to collect,
+   * so it needs no wallet movement, no ledger entry and no PaymentTransaction - marking it paid
+   * here keeps it out of the settlement sweeper forever.
+   *
+   * Everything else is left `unpaid` for the settlement service. Note what this hook does NOT
+   * do: any I/O. Pricing is pure arithmetic and belongs here; collecting money is I/O with its
+   * own failure modes and a transaction boundary, and would otherwise run inside whatever
+   * happened to call save() - an OCPP message handler, the heartbeat sweep, anything.
+   */
+  if (this.amountPaise === 0) this.paymentStatus = 'paid';
 });
 
 /**
@@ -296,6 +340,8 @@ export interface PublicChargingSession {
   appliedTariffId: string | null;
   appliedPricePerKwhPaise: number | null;
   amountPaise: number | null;
+  /** Module 10 — has it been collected? Separate from `status`. */
+  paymentStatus: SessionPaymentStatus;
   /**
    * Display convenience. Also what lets the browser show a LIVE cost estimate while charging:
    * Module 8 already streams `energyConsumedKwh`, so the estimate is that times the rate,
@@ -341,6 +387,7 @@ export function toPublicChargingSession(
     appliedTariffId: session.appliedTariffId ? String(session.appliedTariffId) : null,
     appliedPricePerKwhPaise: session.appliedPricePerKwhPaise,
     amountPaise: session.amountPaise,
+    paymentStatus: session.paymentStatus,
     amountRupees: session.amountPaise === null ? null : paiseToRupees(session.amountPaise),
     createdAt: session.createdAt.toISOString(),
     updatedAt: session.updatedAt.toISOString(),

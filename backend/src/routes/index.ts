@@ -15,6 +15,7 @@ import stationRoutes from './station.routes';
 import chargerRoutes from './charger.routes';
 import sessionRoutes from './session.routes';
 import tariffRoutes from './tariff.routes';
+import paymentRoutes, { walletRouter } from './payment.routes';
 
 const router = Router();
 
@@ -26,5 +27,7 @@ router.use('/stations', stationRoutes);
 router.use('/chargers', chargerRoutes);
 router.use('/charging', sessionRoutes);
 router.use('/tariffs', tariffRoutes);
+router.use('/wallet', walletRouter);
+router.use('/payments', paymentRoutes);
 
 export default router;

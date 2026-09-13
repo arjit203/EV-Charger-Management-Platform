@@ -45,9 +45,29 @@ app.use(
   }),
 );
 
-// Body parsing. The 1mb cap is plenty for JSON payloads and keeps a runaway
-// request from exhausting memory.
-app.use(express.json({ limit: '1mb' }));
+/*
+ * Body parsing. The 1mb cap is plenty for JSON payloads and keeps a runaway request from
+ * exhausting memory.
+ *
+ * MODULE 10 — `verify` captures the RAW BYTES before they are parsed and discarded.
+ *
+ * Razorpay signs its webhooks with an HMAC over the exact bytes it sent. Re-serialising the
+ * parsed object does not reproduce them — key order and whitespace differ — so without this the
+ * signature could never verify, and it would fail silently rather than loudly.
+ *
+ * Done here rather than by mounting `express.raw` on the webhook path, because that mount would
+ * have to be registered BEFORE this line and the payments router would then depend on
+ * middleware ordering in a file it does not own. One line here changes nothing for any other
+ * route, and the webhook handler simply reads `req.rawBody`.
+ */
+app.use(
+  express.json({
+    limit: '1mb',
+    verify: (req, _res, buf) => {
+      (req as express.Request).rawBody = buf;
+    },
+  }),
+);
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // Request logging: concise in development, standard combined format in production.

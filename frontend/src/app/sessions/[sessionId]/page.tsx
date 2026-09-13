@@ -210,6 +210,34 @@ function SessionDetail({
         </div>
       </dl>
 
+      {/*
+        MODULE 10 — payment is its OWN state machine. A completed session that is still unpaid is
+        correct, not an error: the electricity flowed and the wallet was short. Saying so plainly
+        beats a screen that implies everything settled.
+      */}
+      {session.amountPaise !== null && session.amountPaise > 0 && (
+        <div
+          className={`rounded-lg p-4 text-sm ${
+            session.paymentStatus === 'paid'
+              ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+              : 'bg-amber-500/10 text-amber-700 dark:text-amber-400'
+          }`}
+        >
+          {session.paymentStatus === 'paid' ? (
+            <>Paid {formatPaise(session.amountPaise)} from your wallet.</>
+          ) : (
+            <>
+              <strong>{formatPaise(session.amountPaise)} is outstanding.</strong> Your balance was
+              too low when this charge ended. Top up your{' '}
+              <Link href="/wallet" className="underline underline-offset-2">
+                wallet
+              </Link>{' '}
+              and it settles automatically.
+            </>
+          )}
+        </div>
+      )}
+
       {session.appliedPricePerKwhPaise !== null && (
         <p className="text-sm text-neutral-500">
           Charged at {formatRate(session.appliedPricePerKwhPaise)}

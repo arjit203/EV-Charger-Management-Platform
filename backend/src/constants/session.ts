@@ -45,6 +45,16 @@ export type SessionStatus = (typeof SESSION_STATUSES)[number];
  */
 export const OPEN_SESSION_STATUSES: SessionStatus[] = ['initiating', 'active', 'stopping'];
 
+/**
+ * MODULE 10 — collection state, a SEPARATE machine from the session lifecycle above.
+ *
+ * `completed` + `unpaid` is a legitimate combination: electricity was delivered to a driver who
+ * could not pay for it yet. There is no `failed` value because a short wallet is not permanent -
+ * the session settles on its own once the driver tops up.
+ */
+export const SESSION_PAYMENT_STATUSES = ['unpaid', 'paid'] as const;
+export type SessionPaymentStatus = (typeof SESSION_PAYMENT_STATUSES)[number];
+
 /** Why a session ended. */
 export const STOP_REASONS = [
   'Remote', // a stop request from the app

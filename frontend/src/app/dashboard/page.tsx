@@ -89,6 +89,7 @@ const ROLE_LINKS: Record<Role, { href: string; label: string }[]> = {
   // thing in the whole project a driver can actually DO.
   driver: [
     { href: '/charge', label: 'Start charging' },
+    { href: '/wallet', label: 'Wallet' },
     { href: '/sessions', label: 'My charging' },
     { href: '/my-vehicles', label: 'My vehicles' },
     { href: '/profile', label: 'My profile' },

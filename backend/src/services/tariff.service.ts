@@ -138,12 +138,34 @@ export async function setTariffStatus(
   if (tariff.status === status) return toPublicTariff(tariff);
 
   if (status === 'inactive') {
+    /*
+     * MODULE 10 (D13) — REFUSE to leave a company with no price at all.
+     *
+     * Module 9 only warned about this in the UI. That was defensible while a missing tariff
+     * merely blocked new sessions; it stopped being defensible once money depends on it. With
+     * Module 10 the blast radius is wider: every future charge at this company stops, AND any
+     * session still awaiting settlement has no rate to be collected against.
+     *
+     * Note what this does NOT block: the activate-a-replacement SWAP. That path deactivates the
+     * incumbent inside `withTransaction` below, never through here, so changing your rates is
+     * unaffected. Only a bare deactivation that would leave zero active tariffs is refused.
+     */
+    const otherActive = await Tariff.countDocuments({
+      companyId: tariff.companyId,
+      status: 'active',
+      _id: { $ne: tariff._id },
+    });
+
+    if (otherActive === 0) {
+      throw ApiError.conflict(
+        'This is your only active tariff. Activate a replacement instead of deactivating it — ' +
+          'without a price, drivers cannot charge at your stations.',
+        { tariffId: String(tariff._id) },
+      );
+    }
+
     tariff.status = 'inactive';
     await tariff.save();
-    logger.warn(
-      SCOPE,
-      `Company ${String(tariff.companyId)} now has NO active tariff — new sessions will be refused`,
-    );
     return toPublicTariff(tariff);
   }
 

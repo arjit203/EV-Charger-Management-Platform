@@ -29,6 +29,14 @@ declare global {
        * Saves later handlers a second lookup.
        */
       company?: PublicCompany;
+      /**
+       * The unparsed request body, captured by `express.json({ verify })` in `app.ts`
+       * (Module 10).
+       *
+       * Needed by exactly one route: the Razorpay webhook, whose signature is an HMAC over the
+       * bytes as sent. Re-serialising the parsed object would not reproduce them.
+       */
+      rawBody?: Buffer;
     }
   }
 }
