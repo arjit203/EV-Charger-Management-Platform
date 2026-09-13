@@ -13,6 +13,7 @@ import companyRoutes from './company.routes';
 import userRoutes from './user.routes';
 import stationRoutes from './station.routes';
 import chargerRoutes from './charger.routes';
+import sessionRoutes from './session.routes';
 
 const router = Router();
 
@@ -22,5 +23,6 @@ router.use('/companies', companyRoutes);
 router.use('/users', userRoutes);
 router.use('/stations', stationRoutes);
 router.use('/chargers', chargerRoutes);
+router.use('/charging', sessionRoutes);
 
 export default router;

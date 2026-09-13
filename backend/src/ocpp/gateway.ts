@@ -34,6 +34,7 @@ import {
   parseMessage,
 } from './messages';
 import * as registry from './registry';
+import * as sessionEvents from '../services/sessionEvents.service';
 
 const SCOPE = 'ocpp';
 
@@ -226,6 +227,15 @@ async function sweepStaleConnections(): Promise<void> {
 
     try {
       await Charger.updateOne({ _id: connection.chargerId }, { $set: { isOnline: false } });
+
+      // A charger that went silent mid-charge must not leave its session ACTIVE forever. The
+      // partial unique index would keep the connector reserved, and no driver could ever start
+      // there again. Energy recorded up to the last reading is kept, not discarded.
+      await sessionEvents.failOpenSessionsForCharger(
+        connection.chargerId,
+        'ChargerDisconnected',
+        'The charger stopped sending heartbeats.',
+      );
     } catch (error) {
       logger.error(SCOPE, `Failed to mark ${connection.ocppId} offline`, error);
     }
@@ -269,6 +279,19 @@ export function attachOcppGateway(httpServer: HttpServer): void {
   sweepTimer = setInterval(() => void sweepStaleConnections(), SWEEP_INTERVAL_MS);
   sweepTimer.unref();
 
+  // Module 7: resume transaction ids where the last process left off, so a restart cannot
+  // reissue an id that a persisted session already owns.
+  void sessionEvents
+    .highestTransactionId()
+    .then((highest) => {
+      registry.seedTransactionId(highest);
+      if (highest > 0) logger.info(SCOPE, `Transaction ids resume after ${highest}`);
+    })
+    .catch((error: unknown) => logger.error(SCOPE, 'Failed to seed transaction ids', error));
+
+  // Module 7: fails sessions the charger never confirmed, releasing the connector reservation.
+  sessionEvents.startSessionSweeper();
+
   logger.info(SCOPE, `OCPP gateway listening on ws://<host>${OCPP_PATH_PREFIX}<ocppId>`);
 }
 
@@ -310,6 +333,20 @@ function onConnection(socket: WebSocket, identity: AuthenticatedCharger): void {
     void Charger.updateOne({ _id: identity.chargerId }, { $set: { isOnline: false } }).catch(
       (error: unknown) => logger.error(SCOPE, `Failed to mark ${identity.ocppId} offline`, error),
     );
+
+    // The socket died. Anything still open on this charger is finished here rather than left
+    // hanging — the mirror of the heartbeat sweep above, for the case where we DO get a close
+    // event. Both paths are needed: a mobile link dropping mid-frame produces silence, not a
+    // close, and a tidy shutdown produces a close without any silence.
+    void sessionEvents
+      .failOpenSessionsForCharger(
+        identity.chargerId,
+        'ChargerDisconnected',
+        `The charger disconnected (code ${code}).`,
+      )
+      .catch((error: unknown) =>
+        logger.error(SCOPE, `Failed to close sessions for ${identity.ocppId}`, error),
+      );
   });
 
   socket.on('error', (error) => {
@@ -323,6 +360,8 @@ export async function shutdownOcppGateway(): Promise<void> {
     clearInterval(sweepTimer);
     sweepTimer = null;
   }
+
+  sessionEvents.stopSessionSweeper();
 
   cancelPending('Gateway shutting down');
 

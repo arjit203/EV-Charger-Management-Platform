@@ -74,25 +74,6 @@ export const listChargersQuerySchema = z
   })
   .strict();
 
-/**
- * RemoteStartTransaction body (Module 6).
- *
- * `idTag` is the physical credential the hardware would normally read from an RFID card.
- * Module 7 replaces it with the identity of the driver who initiated the session.
- */
-export const remoteStartSchema = z
-  .object({
-    connectorNumber: z.coerce.number().int().min(1).max(8),
-    idTag: z
-      .string()
-      .trim()
-      .min(4, 'idTag must be at least 4 characters')
-      .max(40)
-      .regex(/^[A-Za-z0-9-]+$/, 'idTag may contain only letters, numbers and hyphens'),
-  })
-  .strict();
-
-export type RemoteStartInput = z.infer<typeof remoteStartSchema>;
 
 export type CreateChargerInput = z.infer<typeof createChargerSchema>;
 export type UpdateChargerInput = z.infer<typeof updateChargerSchema>;

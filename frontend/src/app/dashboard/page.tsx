@@ -57,6 +57,7 @@ const ROLE_LINKS: Record<Role, { href: string; label: string }[]> = {
     { href: '/companies', label: 'Companies' },
     { href: '/stations', label: 'Stations' },
     { href: '/chargers', label: 'Chargers' },
+    { href: '/sessions', label: 'Charging sessions' },
     { href: '/users', label: 'Users' },
     { href: '/profile', label: 'My profile' },
   ],
@@ -64,19 +65,25 @@ const ROLE_LINKS: Record<Role, { href: string; label: string }[]> = {
     { href: '/my-company', label: 'My company' },
     { href: '/stations', label: 'Stations' },
     { href: '/chargers', label: 'Chargers' },
+    { href: '/sessions', label: 'Charging sessions' },
     { href: '/users', label: 'Users' },
     { href: '/profile', label: 'My profile' },
   ],
-  // Operator is read-only everywhere so far: no user management (Module 3), and read-only
-  // stations and chargers (Modules 4-5). A real write need first appears with OCPP commands
-  // in Module 6 and monitoring in Module 8.
+  // The operator is read-only for CONFIGURATION — no user management (Module 3), and stations
+  // and chargers are view-only (Modules 4-5). Their one write is operational, added in Module
+  // 7: force-stopping a charging session that has got stuck at their own station.
   operator: [
     { href: '/my-company', label: 'My company' },
     { href: '/stations', label: 'Stations' },
     { href: '/chargers', label: 'Chargers' },
+    { href: '/sessions', label: 'Charging sessions' },
     { href: '/profile', label: 'My profile' },
   ],
+  // Module 7 is where the driver stops being a spectator: starting a charge is the first
+  // thing in the whole project a driver can actually DO.
   driver: [
+    { href: '/charge', label: 'Start charging' },
+    { href: '/sessions', label: 'My charging' },
     { href: '/my-vehicles', label: 'My vehicles' },
     { href: '/profile', label: 'My profile' },
   ],

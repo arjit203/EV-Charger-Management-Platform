@@ -39,7 +39,9 @@ cp .env.example .env.local
 
 ## Running locally
 
-The project runs as separate processes, one per terminal. (The simulator arrives in Module 6.)
+The project runs as separate processes, one per terminal. All three are needed to start a
+charge end to end: the driver asks the backend, the backend commands the charger over OCPP,
+and the charger reports back what it actually delivered.
 
 | Terminal | Directory    | Command                                             | URL                     |
 | -------- | ------------ | --------------------------------------------------- | ----------------------- |
@@ -52,6 +54,10 @@ charger's page in the admin UI.
 
 Open <http://localhost:3000> — the **System Status** page performs a live health check
 against the backend and reports the real MongoDB connection state.
+
+To watch a full charge: log in as a driver, open **Start charging**, paste a connector id from
+the admin UI, and press start. The session page shows the energy curve building as the charger
+reports meter values.
 
 ## Useful scripts
 
@@ -87,7 +93,7 @@ against the backend and reports the real MongoDB connection state.
 | 4     | Station Management              | ✅ Complete |
 | 5     | Charger & Connector Management  | ✅ Complete |
 | 6     | OCPP Gateway + Simulated Charger| ✅ Complete |
-| 7     | Charging Sessions               | Not started |
+| 7     | Charging Sessions               | ✅ Complete |
 | 8     | Real-Time Monitoring            | Not started |
 | 9     | Tariff / Pricing                | Not started |
 | 10    | Wallet & Payments               | Not started |

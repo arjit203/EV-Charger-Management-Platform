@@ -316,3 +316,94 @@ export interface HealthPayload {
   timestamp: string;
   database: DatabaseStatus;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Module 7 — charging sessions                                               */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The fourth status concept in this app, and the one the driver actually watches.
+ *
+ *   initiating  the charger has been asked and has not yet confirmed
+ *   active      energy is flowing
+ *   stopping    a stop has been sent, waiting for the charger to confirm
+ *   completed   finished normally, energy finalised
+ *   failed      never started, or the charger vanished mid-charge
+ */
+export type SessionStatus = 'initiating' | 'active' | 'stopping' | 'completed' | 'failed';
+
+export type StopReason =
+  | 'Remote'
+  | 'Local'
+  | 'ChargerDisconnected'
+  | 'StartTimeout'
+  | 'Rejected';
+
+export interface ChargingSession {
+  id: string;
+  userId: string;
+  vehicleId: string | null;
+  companyId: string;
+  stationId: string;
+  chargerId: string;
+  connectorId: string;
+  connectorNumber: number;
+  transactionId: number | null;
+  status: SessionStatus;
+  idTag: string;
+  requestedAt: string;
+  startedAt: string | null;
+  endedAt: string | null;
+  startMeterWh: number | null;
+  lastMeterWh: number | null;
+  endMeterWh: number | null;
+  energyConsumedWh: number;
+  energyConsumedKwh: number;
+  durationSeconds: number | null;
+  stopReason: StopReason | null;
+  failureReason: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MeterReading {
+  id: string;
+  sessionId: string;
+  meterTimestamp: string;
+  energyWh: number;
+  powerKw: number | null;
+  socPercent: number | null;
+}
+
+/** What the QR code on a physical plug resolves to. */
+export interface ConnectorChargingView {
+  connectorId: string;
+  connectorNumber: number;
+  connectorType: ConnectorType;
+  status: ConnectorStatus;
+  chargerId: string;
+  chargerName: string;
+  powerKw: number;
+  isOnline: boolean;
+  stationName: string;
+  stationAddress: string;
+  canStart: boolean;
+  unavailableReason: string | null;
+}
+
+export interface SessionPayload {
+  session: ChargingSession;
+}
+
+export interface ActiveSessionPayload {
+  session: ChargingSession | null;
+}
+
+export interface ReadingsPayload {
+  readings: MeterReading[];
+  count: number;
+}
+
+export interface ConnectorChargingPayload {
+  connector: ConnectorChargingView;
+}

@@ -8,11 +8,7 @@ import {
   updateCharger,
   updateChargerStatus,
 } from '../controllers/charger.controller';
-import {
-  getConnectionState,
-  remoteStart,
-  remoteStop,
-} from '../controllers/chargerCommand.controller';
+import { getConnectionState } from '../controllers/chargerCommand.controller';
 import {
   createConnector,
   getConnector,
@@ -30,7 +26,6 @@ import {
   chargerStatusSchema,
   createChargerSchema,
   listChargersQuerySchema,
-  remoteStartSchema,
   updateChargerSchema,
 } from '../validators/charger.validator';
 import {
@@ -106,35 +101,23 @@ router.patch(
   updateConnectorStatus,
 );
 
-/* ------------------------- OCPP commands (Module 6) ------------------------ */
+/* --------------------- OCPP diagnostics (Modules 6 + 7) -------------------- */
 /*
- * These are the Module 6 TEST SURFACE for driving the gateway. Module 7 replaces them with
- * the real driver-facing start/stop, which also creates a ChargingSession, applies a tariff
- * and debits a wallet — none of which happens here.
+ * RETIRED IN MODULE 7: `POST /:chargerId/commands/remote-start` and `.../remote-stop`.
  *
- * `operator` is included, and this is the first WRITE they have been given in the whole
- * project. Modules 3, 4 and 5 all deferred operator write access "until a concrete
- * operational trigger exists" — operating a charger is exactly that trigger, and it is
- * literally the role's job. Company scoping still applies: the service resolves the charger
- * through `assertChargerInScope`, so an operator cannot command another company's hardware.
+ * Those were the Module 6 test surface, and leaving them alive alongside Module 7 would have
+ * been a real defect, not untidiness. An admin hitting the raw remote-start would have made a
+ * charger deliver power with NO ChargingSession describing it — energy flowing that the
+ * platform could not bill, show the driver, or explain afterwards.
+ *
+ * The low-level `sendRemoteStart` / `sendRemoteStop` in `ocpp/commands.ts` still exist, but
+ * their only caller is now `chargingSession.service.ts`. Starting is driver-initiated at
+ * `POST /charging/sessions`; the operator's force-stop is `POST /charging/sessions/:id/stop`,
+ * which is session-aware and therefore cannot leave the record and the hardware disagreeing.
+ *
+ * What stays below is READ-ONLY diagnostics. It changes nothing, so it cannot create a
+ * phantom session.
  */
-
-router.post(
-  '/:chargerId/commands/remote-start',
-  authorize(...READ_ROLES),
-  requireActiveCompany,
-  validateParams(chargerIdParamSchema),
-  validateBody(remoteStartSchema),
-  remoteStart,
-);
-
-router.post(
-  '/:chargerId/commands/remote-stop',
-  authorize(...READ_ROLES),
-  requireActiveCompany,
-  validateParams(chargerIdParamSchema),
-  remoteStop,
-);
 
 /** Live gateway state — what the registry believes right now, not the database mirror. */
 router.get(

@@ -91,6 +91,15 @@ export const env = {
    * Configurable mainly so tests can exercise the timeout path without waiting 90 seconds.
    */
   ocppOfflineAfterSeconds: Number.parseInt(optional('OCPP_OFFLINE_AFTER_SECONDS', '90'), 10),
+
+  /**
+   * How long a charging session may wait for the charger to confirm a start (Module 7).
+   *
+   * Default 20 = the 10-second OCPP command timeout plus room for the charger to lock the
+   * cable and run Authorize. Configurable for the same reason as the value above: the timeout
+   * path is a real behaviour that needs testing, and a test should not sit idle for it.
+   */
+  sessionStartTimeoutSeconds: Number.parseInt(optional('SESSION_START_TIMEOUT_SECONDS', '20'), 10),
 } as const;
 
 // Keep `required` referenced for use by later modules (JWT_SECRET in Module 1, etc.)

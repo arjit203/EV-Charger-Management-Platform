@@ -22,6 +22,7 @@ import {
   type OcppPayload,
 } from './messages';
 import { allocateTransactionId, setTransaction, touchHeartbeat, type ChargerConnection } from './registry';
+import * as sessionEvents from '../services/sessionEvents.service';
 
 const SCOPE = 'ocpp';
 
@@ -167,33 +168,41 @@ export async function handleStatusNotification(
 }
 
 /**
- * Authorize — "may this token draw power from this charger?"
+ * Authorize - "may this token draw power from this charger?"
  *
  * This is NOT user login. It is the hardware asking, on behalf of whoever tapped an RFID card
- * on the reader, whether that physical credential is allowed. No session, no password, and
- * the driver never types anything.
+ * or was named in a RemoteStartTransaction, whether that credential is allowed. No session, no
+ * password, and the driver never types anything.
  *
- * DELIBERATELY THIN: any well-formed tag is accepted. Module 7 replaces this with a real
- * lookup against the driver who initiated the session. Building RFID infrastructure now would
- * be inventing a subsystem with no consumer.
+ * MODULE 7 MADE THIS REAL. Module 6 accepted any well-formed tag, because there was nothing to
+ * check a tag against. Now every tag is minted by a specific ChargingSession and is valid only
+ * while that session is open - so a charger cannot authorise a charge nobody requested, and a
+ * tag captured from the wire is worthless once the session it belonged to has ended.
  */
 export async function handleAuthorize(
   connection: ChargerConnection,
   payload: OcppPayload,
 ): Promise<OcppPayload> {
   const idTag = requireString(payload, 'idTag');
-  const isWellFormed = /^[A-Za-z0-9-]{4,40}$/.test(idTag);
+  const isValid = await sessionEvents.authorizeIdTag(idTag);
 
-  logger.info(SCOPE, `Authorize ${connection.ocppId} idTag=${idTag} -> ${isWellFormed ? 'Accepted' : 'Invalid'}`);
+  logger.info(SCOPE, `Authorize ${connection.ocppId} idTag=${idTag} -> ${isValid ? 'Accepted' : 'Invalid'}`);
 
-  return { idTagInfo: { status: isWellFormed ? 'Accepted' : 'Invalid' } };
+  return { idTagInfo: { status: isValid ? 'Accepted' : 'Invalid' } };
 }
 
 /**
- * StartTransaction — "I have begun charging".
+ * StartTransaction - "I have begun charging".
  *
- * The transaction id lives in the in-memory registry, not MongoDB. Module 7 owns persistent
- * ChargingSession records; creating one here would mean writing a model Module 7 redesigns.
+ * THE INVARIANT THIS PROTECTS: no energy flows without a session describing it.
+ *
+ * A start we cannot match to an `initiating` session is REFUSED - we still answer with a
+ * transactionId, because OCPP 1.6 requires the field, but `idTagInfo.status` is `Invalid`,
+ * which tells the charge point it is not authorised and that it should stop. That covers
+ * somebody walking up and starting a charge locally with an RFID card we never issued.
+ *
+ * Refusing rather than quietly creating a session is the deliberate choice. A session needs an
+ * owner to bill, and there is nobody to attribute a walk-up charge to.
  */
 export async function handleStartTransaction(
   connection: ChargerConnection,
@@ -203,8 +212,32 @@ export async function handleStartTransaction(
   const idTag = requireString(payload, 'idTag');
   const meterStartWh = requireNumber(payload, 'meterStart');
 
-  const transactionId = allocateTransactionId();
+  const outcome = await sessionEvents.onStartTransaction(
+    {
+      chargerId: connection.chargerId,
+      connectorNumber,
+      idTag,
+      meterStartWh,
+      timestamp: payload.timestamp,
+    },
+    allocateTransactionId,
+  );
 
+  if (!outcome.accepted || !outcome.session || outcome.session.transactionId === null) {
+    logger.warn(
+      SCOPE,
+      `StartTransaction refused on ${connection.ocppId}: ${outcome.reason ?? 'no matching session'}`,
+    );
+
+    // The protocol still wants a number. Allocating a throwaway one is safer than returning 0,
+    // which some charge points treat as a valid id.
+    return { transactionId: allocateTransactionId(), idTagInfo: { status: 'Invalid' } };
+  }
+
+  const transactionId = outcome.session.transactionId;
+
+  // The registry copy is the gateway own bookkeeping, used to match a later StopTransaction on
+  // this socket. The database row is the record of truth; this is scratch state.
   setTransaction(connection.ocppId, {
     transactionId,
     connectorNumber,
@@ -222,41 +255,92 @@ export async function handleStartTransaction(
 }
 
 /**
- * MeterValues — periodic energy readings during charging.
+ * MeterValues - periodic energy readings during charging.
  *
- * Logged and held in memory only. Module 7 owns persistent MeterReading records; this module's
- * job is proving the values arrive and increase.
+ * Module 6 logged these and threw them away. Module 7 persists every one, because the readings
+ * ARE the evidence: the live graph in Module 8, the bill in Module 10 and the answer to a
+ * billing dispute in Module 11 all come from this stream, not from one final number.
+ *
+ * A reading that is rejected - duplicate, stale, or against a session that has already ended -
+ * still gets an empty CALLRESULT rather than a CALLERROR. Chargers resend, and a charger that
+ * buffered readings while offline replays its whole backlog on reconnect. Answering with an
+ * error for expected traffic would make a healthy charger look broken.
  */
 export async function handleMeterValues(
   connection: ChargerConnection,
   payload: OcppPayload,
 ): Promise<OcppPayload> {
   const energyWh = requireNumber(payload, 'energyWh');
-  const transactionId = connection.transaction?.transactionId ?? null;
 
-  logger.info(
-    SCOPE,
-    `MeterValues ${connection.ocppId} transaction ${transactionId ?? '-'}: ${(energyWh / 1000).toFixed(3)} kWh`,
-  );
+  const transactionId =
+    typeof payload.transactionId === 'number'
+      ? payload.transactionId
+      : connection.transaction?.transactionId ?? null;
+
+  if (transactionId === null) {
+    logger.warn(SCOPE, `MeterValues from ${connection.ocppId} with no transaction - ignored`);
+    return {};
+  }
+
+  const outcome = await sessionEvents.onMeterValues({
+    transactionId,
+    energyWh,
+    powerKw: typeof payload.powerKw === 'number' ? payload.powerKw : null,
+    socPercent: typeof payload.socPercent === 'number' ? payload.socPercent : null,
+    timestamp: payload.timestamp,
+  });
+
+  if (outcome.stored) {
+    logger.info(
+      SCOPE,
+      `MeterValues ${connection.ocppId} transaction ${transactionId}: ${(energyWh / 1000).toFixed(3)} kWh`,
+    );
+  } else {
+    logger.warn(
+      SCOPE,
+      `MeterValues ${connection.ocppId} transaction ${transactionId} dropped: ${outcome.reason ?? 'unknown'}`,
+    );
+  }
 
   return {};
 }
 
-/** StopTransaction — the mirror of StartTransaction, with the final meter reading. */
+/**
+ * StopTransaction - the mirror of StartTransaction, carrying the final meter reading.
+ *
+ * This is where energy is FINALISED, and it is the only thing that can mark a session
+ * `completed`. Not the driver pressing stop, not the operator force-stopping: those only ask.
+ * Until the charger reports the closing counter value, nobody knows how much was delivered.
+ */
 export async function handleStopTransaction(
   connection: ChargerConnection,
   payload: OcppPayload,
 ): Promise<OcppPayload> {
   const meterStopWh = requireNumber(payload, 'meterStop');
-  const transaction = connection.transaction;
 
-  const consumedWh = transaction ? meterStopWh - transaction.meterStartWh : meterStopWh;
+  const transactionId =
+    typeof payload.transactionId === 'number'
+      ? payload.transactionId
+      : connection.transaction?.transactionId ?? null;
 
-  logger.info(
-    SCOPE,
-    `StopTransaction ${connection.ocppId} transaction ${transaction?.transactionId ?? '-'}: ` +
-      `${(consumedWh / 1000).toFixed(3)} kWh consumed`,
-  );
+  if (transactionId !== null) {
+    const session = await sessionEvents.onStopTransaction({
+      transactionId,
+      meterStopWh,
+      reason: payload.reason,
+      timestamp: payload.timestamp,
+    });
+
+    if (session) {
+      logger.info(
+        SCOPE,
+        `StopTransaction ${connection.ocppId} transaction ${transactionId}: ` +
+          `${(session.energyConsumedWh / 1000).toFixed(3)} kWh consumed`,
+      );
+    }
+  } else {
+    logger.warn(SCOPE, `StopTransaction from ${connection.ocppId} with no transaction id`);
+  }
 
   setTransaction(connection.ocppId, null);
 

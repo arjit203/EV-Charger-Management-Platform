@@ -40,8 +40,23 @@ export interface ChargerConnection {
 
 const connections = new Map<string, ChargerConnection>();
 
-/** Monotonic transaction ids for the life of the process. Module 7 replaces these. */
+/**
+ * Monotonic OCPP transaction ids.
+ *
+ * MODULE 7 MADE THE STARTING POINT MATTER. While nothing was persisted, beginning at 1000 on
+ * every boot was harmless. Now sessions outlive the process, and a restart that handed out
+ * 1001 again would either collide with the unique index on an old session, or — far worse —
+ * silently attach a live charger's MeterValues to a completed charge belonging to someone
+ * else. `seedTransactionId` is called once at gateway start with the highest id ever issued.
+ *
+ * Still in memory rather than a database counter: ids only need to be unique, not gapless, and
+ * a round trip to Mongo on every StartTransaction would buy nothing.
+ */
 let nextTransactionId = 1000;
+
+export function seedTransactionId(highestIssued: number): void {
+  if (highestIssued > nextTransactionId) nextTransactionId = highestIssued;
+}
 
 export function allocateTransactionId(): number {
   nextTransactionId += 1;
