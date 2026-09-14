@@ -18,6 +18,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useAsyncData } from '@/hooks/useAsyncData';
 import { listUsers } from '@/services/user.service';
 import { ROLE_LABELS, type Role, type User, type UserStatus } from '@/types/api';
+import { buttonClasses } from '@/components/ui/Button';
 
 function UserRow({ user }: { user: User }) {
   return (
@@ -76,7 +77,7 @@ function UserListContent() {
         </div>
         <Link
           href="/users/new"
-          className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 dark:bg-white dark:text-neutral-900"
+          className={buttonClasses('primary', 'md')}
         >
           Add staff
         </Link>
@@ -86,11 +87,11 @@ function UserListContent() {
         <input
           type="search" placeholder="Search name, email or phone…"
           value={search} onChange={(e) => setSearch(e.target.value)}
-          className="min-w-0 flex-1 rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-500 dark:border-neutral-700"
+          className="min-w-0 flex-1 rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
         />
         <select
           value={role} onChange={(e) => setRole(e.target.value as Role | '')} aria-label="Filter by role"
-          className="rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-500 dark:border-neutral-700"
+          className="rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
         >
           <option value="">All roles</option>
           <option value="cpo_admin">CPO Admin</option>
@@ -100,7 +101,7 @@ function UserListContent() {
         </select>
         <select
           value={status} onChange={(e) => setStatus(e.target.value as UserStatus | '')} aria-label="Filter by status"
-          className="rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-500 dark:border-neutral-700"
+          className="rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
         >
           <option value="">All statuses</option>
           <option value="active">Active</option>

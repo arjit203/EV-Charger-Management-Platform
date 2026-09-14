@@ -14,6 +14,7 @@ import { FormField } from '@/components/FormField';
 import { extractFieldErrors, toMessage } from '@/lib/formatApiError';
 import type { CompanyInput } from '@/services/company.service';
 import { COMPANY_TYPE_LABELS, type Company, type CompanyType } from '@/types/api';
+import { buttonClasses } from '@/components/ui/Button';
 
 const TYPES = Object.keys(COMPANY_TYPE_LABELS) as CompanyType[];
 
@@ -141,7 +142,7 @@ export function CompanyForm({ initial, submitLabel, onSubmit, onCancel }: Compan
       <div className="flex items-center gap-3">
         <button
           type="submit" disabled={isSubmitting}
-          className="rounded-lg bg-neutral-900 px-4 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50 dark:bg-white dark:text-neutral-900"
+          className={buttonClasses('primary', 'md')}
         >
           {isSubmitting ? 'Saving…' : submitLabel}
         </button>

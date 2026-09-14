@@ -1,13 +1,50 @@
 @import "tailwindcss";
 
+/*
+ * DESIGN TOKENS — one place that decides what the application looks like.
+ *
+ * THE ACCENT IS NOT A STATUS COLOUR, and that separation is the point of this file.
+ *
+ *   --accent   indigo. Chrome only: active navigation, primary buttons, focus rings,
+ *              selected rows. It carries NO meaning about the health of anything.
+ *   status     green / amber / red / grey. These MEAN something — available, warning,
+ *              faulted, offline — and are never used for decoration.
+ *
+ * Before this pass the active sidebar item was emerald, i.e. the same colour as
+ * "available". A navigation highlight that looks like a health indicator makes both
+ * weaker, which is why the accent had to become something the status palette never uses.
+ */
+
 :root {
   --background: #ffffff;
   --foreground: #171717;
+
+  /* Surfaces */
+  --surface: #ffffff;
+  --surface-muted: #fafafa;
+  --border: #e5e5e5;
+  --border-strong: #d4d4d4;
+
+  /* Text */
+  --muted: #737373;
+  --muted-strong: #525252;
+
+  /* Accent — chrome, never status. */
+  --accent: #4f46e5;
+  --accent-hover: #4338ca;
+  --accent-soft: rgba(79, 70, 229, 0.1);
+  --accent-ring: rgba(79, 70, 229, 0.35);
+  --accent-contrast: #ffffff;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-border-subtle: var(--border);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -16,11 +53,46 @@
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
+
+    --surface: #0f0f0f;
+    --surface-muted: #141414;
+    --border: #262626;
+    --border-strong: #404040;
+
+    --muted: #a3a3a3;
+    --muted-strong: #d4d4d4;
+
+    /* Lifted for contrast on a dark ground; same hue, same meaning. */
+    --accent: #818cf8;
+    --accent-hover: #a5b4fc;
+    --accent-soft: rgba(129, 140, 248, 0.14);
+    --accent-ring: rgba(129, 140, 248, 0.45);
+    --accent-contrast: #111827;
   }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  /*
+   * `var(--font-sans)` rather than a hardcoded stack.
+   *
+   * THE BUG THIS LINE FIXES: `layout.tsx` has always loaded Geist Sans and Geist Mono and
+   * exposed them as CSS variables, and `@theme inline` has always mapped `--font-sans` to
+   * them — but this rule said `Arial, Helvetica, sans-serif`, which won. The whole
+   * application rendered in Arial while shipping two unused webfonts.
+   */
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+/*
+ * One focus treatment for the entire app.
+ *
+ * `:focus-visible` rather than `:focus` so a mouse click does not leave a ring behind, but
+ * keyboard navigation always shows where it is. Accessibility, not decoration.
+ */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent-ring);
+  outline-offset: 2px;
+  border-radius: 0.5rem;
 }

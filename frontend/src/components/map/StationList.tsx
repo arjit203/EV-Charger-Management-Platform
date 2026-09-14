@@ -15,13 +15,8 @@
 import { useEffect, useRef } from 'react';
 
 import type { AnyMapStation } from '@/types/api';
+import { StatusBadge } from '@/components/StatusBadge';
 import { hasUsableCoordinates } from './coordinates';
-
-function statusTone(status: string): string {
-  if (status === 'active') return 'text-emerald-700 dark:text-emerald-400';
-  if (status === 'suspended') return 'text-red-700 dark:text-red-400';
-  return 'text-neutral-500';
-}
 
 export function StationList({
   stations,
@@ -75,8 +70,7 @@ export function StationList({
               </p>
 
               <p className="mt-1 flex flex-wrap items-center gap-x-2 text-xs">
-                <span className={statusTone(station.status)}>{station.status}</span>
-                <span className="text-neutral-400">·</span>
+                <StatusBadge status={station.status} size="sm" />
                 <span className="text-neutral-500">
                   {station.totalConnectors === 0
                     ? 'no connectors'

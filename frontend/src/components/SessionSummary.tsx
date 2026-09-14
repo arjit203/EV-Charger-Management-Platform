@@ -1,6 +1,6 @@
 import Link from 'next/link';
 
-import { StatusBadge, type Tone } from '@/components/StatusBadge';
+import { StatusBadge, statusTone, type Tone } from '@/components/StatusBadge';
 import { formatPaise } from '@/lib/money';
 import type { ChargingSession, SessionStatus } from '@/types/api';
 
@@ -11,11 +11,19 @@ import type { ChargingSession, SessionStatus } from '@/types/api';
  * the charger has been asked and has not answered yet. Showing them as success would tell the
  * driver energy is flowing when it may never start.
  */
+/**
+ * Delegates to the shared status vocabulary rather than keeping its own opinion.
+ *
+ * The local version said `completed` was NEUTRAL (grey) and `initiating` was WARN (amber),
+ * while the rest of the app now reads `completed` as good and in-flight states as info. A
+ * finished charge is a success, not a shrug, and it must not be grey on one screen and green
+ * on another.
+ *
+ * The friendly LABELS below are kept — "starting…" reads better than "initiating" — because
+ * wording and colour are separate decisions, and only the colour needed unifying.
+ */
 export function sessionTone(status: SessionStatus): Tone {
-  if (status === 'active') return 'good';
-  if (status === 'completed') return 'neutral';
-  if (status === 'failed') return 'bad';
-  return 'warn';
+  return statusTone(status);
 }
 
 export const SESSION_STATUS_LABELS: Record<SessionStatus, string> = {

@@ -10,6 +10,9 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 
+import { IconInbox } from '@/components/layout/icons';
+import { Button } from '@/components/ui/Button';
+
 /* -------------------------------------------------------------------------- */
 /* Cards                                                                      */
 /* -------------------------------------------------------------------------- */
@@ -35,18 +38,40 @@ export function StatCard({
         ? 'text-red-600 dark:text-red-500'
         : '';
 
+  /*
+   * THE HIERARCHY IS THE POINT, and it is three deliberate steps rather than three sizes
+   * chosen ad hoc:
+   *
+   *   label   11px, uppercase, tracked, muted   — what this is
+   *   value   30px, semibold, tabular           — THE NUMBER. The reason the card exists
+   *   sub     12px, muted                       — context you read second
+   *
+   * `tabular-nums` matters more than it looks: proportional digits make a column of figures
+   * ripple as values change live, which on this dashboard they do.
+   *
+   * `min-h` keeps a row of cards level even when one has no `sub` line.
+   */
   const body = (
     <>
-      <p className="text-[11px] uppercase tracking-wide text-neutral-500">{label}</p>
-      <p className={`mt-1 text-2xl font-semibold tabular-nums ${toneClass}`}>{value}</p>
-      {sub && <p className="mt-0.5 text-xs text-neutral-500">{sub}</p>}
+      <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-neutral-500">
+        {label}
+      </p>
+      <p className={`mt-1.5 text-[30px] font-semibold leading-none tabular-nums ${toneClass}`}>
+        {value}
+      </p>
+      {sub && <p className="mt-2 text-xs leading-relaxed text-neutral-500">{sub}</p>}
     </>
   );
 
-  const base = 'rounded-xl border border-neutral-200 p-4 dark:border-neutral-800';
+  const base =
+    'flex min-h-[7rem] flex-col justify-center rounded-xl border border-neutral-200 p-4 ' +
+    'dark:border-neutral-800';
 
   return href ? (
-    <Link href={href} className={`${base} block transition-colors hover:bg-neutral-500/5`}>
+    <Link
+      href={href}
+      className={`${base} transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]`}
+    >
       {body}
     </Link>
   ) : (
@@ -73,11 +98,11 @@ export function Panel({
      */
     <section className="min-w-0 rounded-xl border border-neutral-200 dark:border-neutral-800">
       <header className="flex items-center justify-between gap-3 border-b border-neutral-200 px-4 py-3 dark:border-neutral-800">
-        <h2 className="text-sm font-semibold">{title}</h2>
+        <h2 className="text-sm font-semibold tracking-tight">{title}</h2>
         {action && (
           <Link
             href={action.href}
-            className="shrink-0 text-xs text-neutral-500 underline underline-offset-2 hover:text-neutral-800 dark:hover:text-neutral-200"
+            className="shrink-0 text-xs font-medium text-[var(--accent)] transition-colors hover:text-[var(--accent-hover)]"
           >
             {action.label}
           </Link>
@@ -117,10 +142,19 @@ export function SkeletonRows({ rows = 3 }: { rows?: number }) {
   );
 }
 
-/** "Nothing here" said properly. A blank card is indistinguishable from a broken one. */
+/**
+ * "Nothing here" said properly. A blank card is indistinguishable from a broken one.
+ *
+ * A muted glyph and centred copy — deliberately NOT an illustration, and deliberately never a
+ * placeholder number. An empty dashboard should look empty, not look populated with zeros
+ * someone might read as data.
+ */
 export function EmptyState({ message }: { message: string }) {
   return (
-    <p className="py-6 text-center text-sm text-neutral-500">{message}</p>
+    <div className="flex flex-col items-center justify-center gap-2 py-8 text-center">
+      <IconInbox className="h-5 w-5 text-neutral-400" />
+      <p className="max-w-xs text-sm text-neutral-500">{message}</p>
+    </div>
   );
 }
 
@@ -130,9 +164,9 @@ export function ErrorState({ message, onRetry }: { message: string; onRetry?: ()
     <div className="rounded-lg border border-red-300 bg-red-500/5 p-4 text-sm text-red-700 dark:border-red-900 dark:text-red-400">
       <p>{message}</p>
       {onRetry && (
-        <button type="button" onClick={onRetry} className="mt-2 underline underline-offset-2">
+        <Button variant="danger" size="sm" onClick={onRetry} className="mt-3">
           Try again
-        </button>
+        </Button>
       )}
     </div>
   );

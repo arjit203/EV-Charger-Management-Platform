@@ -22,6 +22,7 @@ import { useAsyncData } from '@/hooks/useAsyncData';
 import { extractFieldErrors, toMessage } from '@/lib/formatApiError';
 import { listCompanies } from '@/services/company.service';
 import { createStaffUser } from '@/services/user.service';
+import { buttonClasses } from '@/components/ui/Button';
 
 function CreateUserContent() {
   const { user } = useAuth();
@@ -103,7 +104,7 @@ function CreateUserContent() {
           <select
             id="role" value={form.role}
             onChange={(e) => setForm((prev) => ({ ...prev, role: e.target.value as 'cpo_admin' | 'operator' }))}
-            className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-500 dark:border-neutral-700"
+            className="w-full rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
           >
             <option value="operator">Operator</option>
             {isPlatformAdmin ? <option value="cpo_admin">CPO Admin</option> : null}
@@ -118,7 +119,7 @@ function CreateUserContent() {
             <select
               id="companyId" value={form.companyId} required
               onChange={(e) => setForm((prev) => ({ ...prev, companyId: e.target.value }))}
-              className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-500 dark:border-neutral-700"
+              className="w-full rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
             >
               <option value="">Select a company…</option>
               {companiesState.status === 'ok' && companiesState.data
@@ -136,7 +137,7 @@ function CreateUserContent() {
         <div className="flex items-center gap-3">
           <button
             type="submit" disabled={isSubmitting}
-            className="rounded-lg bg-neutral-900 px-4 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50 dark:bg-white dark:text-neutral-900"
+            className={buttonClasses('primary', 'md')}
           >
             {isSubmitting ? 'Creating…' : 'Create account'}
           </button>

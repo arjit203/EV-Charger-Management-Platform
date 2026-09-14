@@ -20,6 +20,7 @@ import { ApiClientError } from '@/services/apiClient';
 import { fetchHealth } from '@/services/health.service';
 import { config } from '@/lib/config';
 import type { DatabaseState, HealthPayload } from '@/types/api';
+import { buttonClasses } from '@/components/ui/Button';
 
 /** Map a database state to a badge colour and a plain-English explanation. */
 const DATABASE_HINTS: Record<DatabaseState, { tone: Tone; hint: string }> = {
@@ -190,7 +191,7 @@ export default function SystemStatusPage() {
           type="button"
           onClick={() => void recheck()}
           disabled={isLoading}
-          className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50 dark:bg-white dark:text-neutral-900"
+          className={buttonClasses('primary', 'md')}
         >
           {isLoading ? 'Checking…' : 'Check again'}
         </button>

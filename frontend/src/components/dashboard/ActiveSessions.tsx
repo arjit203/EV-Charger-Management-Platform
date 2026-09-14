@@ -22,16 +22,11 @@ import Link from 'next/link';
 import { useSocketEvent } from '@/hooks/useSocketEvent';
 import { estimateAmountPaise, formatPaise } from '@/lib/money';
 import type { ChargingSession } from '@/types/api';
+import { StatusBadge } from '@/components/StatusBadge';
 import { EmptyState, Panel, relativeTime } from './primitives';
 
 /** Module 7's vocabulary: anything not yet finished occupies a connector. */
 const OPEN_STATUSES = ['initiating', 'active', 'stopping'];
-
-const STATUS_TONE: Record<string, string> = {
-  initiating: 'text-amber-600 dark:text-amber-500',
-  active: 'text-emerald-600 dark:text-emerald-400',
-  stopping: 'text-blue-600 dark:text-blue-400',
-};
 
 export function ActiveSessions({ initial }: { initial: ChargingSession[] }) {
   const [sessions, setSessions] = useState(initial);
@@ -91,7 +86,7 @@ export function ActiveSessions({ initial }: { initial: ChargingSession[] }) {
         <div className="overflow-x-auto">
           <table className="w-full min-w-[34rem] text-sm">
             <thead>
-              <tr className="border-b border-neutral-200 text-left text-[11px] uppercase tracking-wide text-neutral-500 dark:border-neutral-800">
+              <tr className="border-b border-neutral-200 text-left text-[11px] font-medium uppercase tracking-[0.08em] text-neutral-500 dark:border-neutral-800">
                 <th className="pb-2 font-medium">Connector</th>
                 <th className="pb-2 font-medium">Status</th>
                 <th className="pb-2 text-right font-medium">Energy</th>
@@ -114,20 +109,22 @@ export function ActiveSessions({ initial }: { initial: ChargingSession[] }) {
                 );
 
                 return (
-                  <tr key={session.id} className="hover:bg-neutral-500/5">
-                    <td className="py-2">
+                  <tr key={session.id} className="transition-colors hover:bg-neutral-500/5">
+                    <td className="py-2.5">
                       <Link href={`/sessions/${session.id}`} className="underline underline-offset-2">
                         #{session.connectorNumber}
                       </Link>
                     </td>
-                    <td className={`py-2 ${STATUS_TONE[session.status] ?? ''}`}>{session.status}</td>
-                    <td className="py-2 text-right tabular-nums">
+                    <td className="py-2.5">
+                      <StatusBadge status={session.status} size="sm" />
+                    </td>
+                    <td className="py-2.5 text-right tabular-nums">
                       {session.energyConsumedKwh.toFixed(3)} kWh
                     </td>
-                    <td className="py-2 text-right tabular-nums text-neutral-500">
+                    <td className="py-2.5 text-right tabular-nums text-neutral-500">
                       {estimate === null ? '—' : formatPaise(estimate)}
                     </td>
-                    <td className="py-2 text-right text-neutral-500">
+                    <td className="py-2.5 text-right text-neutral-500">
                       {session.startedAt ? relativeTime(session.startedAt) : 'starting…'}
                     </td>
                   </tr>

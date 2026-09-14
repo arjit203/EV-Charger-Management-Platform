@@ -47,12 +47,13 @@ interface MeterUpdateEvent {
   powerKw: number | null;
 }
 
-function connectorTone(status: ConnectorStatus) {
-  if (status === 'charging') return 'warn' as const;
-  if (status === 'available') return 'good' as const;
-  if (status === 'faulted') return 'bad' as const;
-  return 'neutral' as const;
-}
+/*
+ * Connector tone now comes from the SHARED vocabulary in StatusBadge, not a local map.
+ *
+ * The local one said `charging` was amber — i.e. "needs attention" — while the dashboard
+ * showed the same status blue. A charge in progress is not a warning, and the same word must
+ * not be two colours on two screens.
+ */
 
 function MonitorContent() {
   const { isConnected, reconnectCount } = useSocket();
@@ -147,7 +148,7 @@ function MonitorContent() {
     <main className="mx-auto max-w-5xl px-6 py-12">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">Live operations</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Live operations</h1>
           <p className="mt-1 text-sm text-neutral-500">
             Updates arrive as they happen — this page never reloads itself.
           </p>
@@ -158,7 +159,7 @@ function MonitorContent() {
             label={isConnected ? 'live' : 'reconnecting…'}
           />
           {lastEventAt && (
-            <p className="mt-1 text-xs text-neutral-500">last event {lastEventAt}</p>
+            <p className="mt-1.5 text-[11px] tabular-nums text-neutral-500">last event {lastEventAt}</p>
           )}
         </div>
       </div>
@@ -174,7 +175,7 @@ function MonitorContent() {
       {state.status === 'ok' && (
         <>
           <section className="mt-8">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-500">
+            <h2 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-neutral-500">
               Chargers ({chargers.length})
             </h2>
             <div className="mt-3 space-y-2">
@@ -187,7 +188,7 @@ function MonitorContent() {
                 <Link
                   key={charger.id}
                   href={`/chargers/${charger.id}`}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-neutral-200 p-4 transition-colors hover:bg-neutral-500/5 dark:border-neutral-800"
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-neutral-200 p-4 transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-soft)] dark:border-neutral-800"
                 >
                   <div className="min-w-0">
                     <p className="truncate font-medium">{charger.name}</p>
@@ -213,7 +214,7 @@ function MonitorContent() {
 
           {liveConnectors.length > 0 && (
             <section className="mt-10">
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-500">
+              <h2 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-neutral-500">
                 Connector activity
               </h2>
               <p className="mt-0.5 text-xs text-neutral-500">
@@ -226,7 +227,7 @@ function MonitorContent() {
                     className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 px-3 py-2 text-xs dark:border-neutral-800"
                   >
                     <span className="text-neutral-500">#{connector.connectorNumber}</span>
-                    <StatusBadge tone={connectorTone(connector.status)} label={connector.status} />
+                    <StatusBadge status={connector.status} />
                     {connector.errorCode && (
                       <span className="text-red-600 dark:text-red-400">{connector.errorCode}</span>
                     )}
@@ -237,7 +238,7 @@ function MonitorContent() {
           )}
 
           <section className="mt-10">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-500">
+            <h2 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-neutral-500">
               Charging now ({sessions.length})
             </h2>
             <div className="mt-3 space-y-2">
@@ -250,7 +251,7 @@ function MonitorContent() {
                 <Link
                   key={session.id}
                   href={`/sessions/${session.id}`}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-neutral-200 p-4 transition-colors hover:bg-neutral-500/5 dark:border-neutral-800"
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-neutral-200 p-4 transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-soft)] dark:border-neutral-800"
                 >
                   <div className="min-w-0">
                     <p className="truncate font-medium tabular-nums">{formatEnergy(session)}</p>

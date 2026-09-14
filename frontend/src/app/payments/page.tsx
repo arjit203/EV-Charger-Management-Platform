@@ -26,19 +26,13 @@ import { useCallback, useState } from 'react';
 import Link from 'next/link';
 
 import { RequireAuth } from '@/components/RequireAuth';
+import { StatusBadge } from '@/components/StatusBadge';
 import { EmptyState, ErrorState, Panel, SkeletonRows } from '@/components/dashboard/primitives';
 import { useAsyncData } from '@/hooks/useAsyncData';
 import { toMessage } from '@/lib/formatApiError';
 import { formatPaise } from '@/lib/money';
 import { listPayments } from '@/services/wallet.service';
-import type { PaymentStatus, PaymentTransaction } from '@/types/api';
-
-const STATUS_TONE: Record<PaymentStatus, string> = {
-  paid: 'text-emerald-600 dark:text-emerald-400',
-  pending: 'text-amber-600 dark:text-amber-500',
-  failed: 'text-red-600 dark:text-red-500',
-  refunded: 'text-neutral-500',
-};
+import type { PaymentTransaction } from '@/types/api';
 
 /**
  * The two purposes read very differently on a ledger, and Module 13 made the distinction
@@ -57,7 +51,7 @@ function PaymentsTable({ items }: { items: PaymentTransaction[] }) {
     <div className="overflow-x-auto">
       <table className="w-full min-w-[38rem] text-sm">
         <thead>
-          <tr className="border-b border-neutral-200 text-left text-[11px] uppercase tracking-wide text-neutral-500 dark:border-neutral-800">
+          <tr className="border-b border-neutral-200 text-left text-[11px] font-medium uppercase tracking-[0.08em] text-neutral-500 dark:border-neutral-800">
             <th className="pb-2 font-medium">When</th>
             <th className="pb-2 font-medium">Purpose</th>
             <th className="pb-2 font-medium">Status</th>
@@ -68,12 +62,14 @@ function PaymentsTable({ items }: { items: PaymentTransaction[] }) {
         <tbody className="divide-y divide-neutral-100 dark:divide-neutral-900">
           {items.map((payment) => (
             <tr key={payment.id} className="hover:bg-neutral-500/5">
-              <td className="py-2 text-neutral-500">
+              <td className="py-2.5 text-neutral-500">
                 {new Date(payment.paidAt ?? payment.createdAt).toLocaleString()}
               </td>
-              <td className="py-2">{PURPOSE_LABEL[payment.purpose] ?? payment.purpose}</td>
-              <td className={`py-2 ${STATUS_TONE[payment.status]}`}>{payment.status}</td>
-              <td className="py-2">
+              <td className="py-2.5">{PURPOSE_LABEL[payment.purpose] ?? payment.purpose}</td>
+              <td className="py-2.5">
+                <StatusBadge status={payment.status} size="sm" />
+              </td>
+              <td className="py-2.5">
                 {payment.chargingSessionId ? (
                   <Link
                     href={`/sessions/${payment.chargingSessionId}`}
@@ -85,7 +81,7 @@ function PaymentsTable({ items }: { items: PaymentTransaction[] }) {
                   <span className="text-neutral-400">—</span>
                 )}
               </td>
-              <td className="py-2 text-right font-medium tabular-nums">
+              <td className="py-2.5 text-right font-medium tabular-nums">
                 {formatPaise(payment.amountPaise)}
               </td>
             </tr>

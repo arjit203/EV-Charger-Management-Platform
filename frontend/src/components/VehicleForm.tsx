@@ -14,6 +14,7 @@ import { FormField } from '@/components/FormField';
 import { extractFieldErrors, toMessage } from '@/lib/formatApiError';
 import type { VehicleInput } from '@/services/vehicle.service';
 import { CONNECTOR_LABELS, type ConnectorType, type Vehicle } from '@/types/api';
+import { buttonClasses } from '@/components/ui/Button';
 
 const CONNECTORS = Object.keys(CONNECTOR_LABELS) as ConnectorType[];
 
@@ -93,7 +94,7 @@ export function VehicleForm({ initial, submitLabel, onSubmit, onCancel }: Vehicl
           <select
             id="connectorType" value={form.connectorType}
             onChange={(e) => setForm((prev) => ({ ...prev, connectorType: e.target.value as ConnectorType }))}
-            className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-500 dark:border-neutral-700"
+            className="w-full rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
           >
             {CONNECTORS.map((type) => (
               <option key={type} value={type}>{CONNECTOR_LABELS[type]}</option>
@@ -113,7 +114,7 @@ export function VehicleForm({ initial, submitLabel, onSubmit, onCancel }: Vehicl
       <div className="flex items-center gap-3">
         <button
           type="submit" disabled={isSubmitting}
-          className="rounded-lg bg-neutral-900 px-4 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50 dark:bg-white dark:text-neutral-900"
+          className={buttonClasses('primary', 'md')}
         >
           {isSubmitting ? 'Saving…' : submitLabel}
         </button>

@@ -27,6 +27,7 @@ import Link from 'next/link';
 
 import { useSocketEvent } from '@/hooks/useSocketEvent';
 import type { ConnectorStatus, FleetSnapshot } from '@/types/api';
+import { statusTone } from '@/components/StatusBadge';
 import { Panel } from './primitives';
 
 interface ConnectorStatusEvent {
@@ -39,14 +40,17 @@ interface ChargerConnectivityEvent {
   isOnline: boolean;
 }
 
-const CONNECTOR_TONE: Record<string, string> = {
-  available: 'text-emerald-600 dark:text-emerald-400',
-  charging: 'text-blue-600 dark:text-blue-400',
-  preparing: 'text-blue-600 dark:text-blue-400',
-  finishing: 'text-blue-600 dark:text-blue-400',
-  occupied: 'text-neutral-600 dark:text-neutral-300',
-  faulted: 'text-red-600 dark:text-red-500',
-  unavailable: 'text-neutral-500',
+/*
+ * Connector counts read as a number + word rather than a pill, because there are seven of
+ * them and seven pills is a wall. The COLOUR still comes from the one shared vocabulary, so
+ * `charging` is the same blue here as the badge on the sessions table beside it.
+ */
+const TONE_TEXT: Record<string, string> = {
+  good: 'text-emerald-600 dark:text-emerald-400',
+  info: 'text-blue-600 dark:text-blue-400',
+  warn: 'text-amber-600 dark:text-amber-500',
+  bad: 'text-red-600 dark:text-red-500',
+  neutral: 'text-neutral-500',
 };
 
 export function FleetStatus({ fleet }: { fleet: FleetSnapshot }) {
@@ -100,23 +104,23 @@ export function FleetStatus({ fleet }: { fleet: FleetSnapshot }) {
   return (
     <Panel title="Fleet status" action={{ href: '/monitor', label: 'Live operations →' }}>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Link href="/chargers" className="rounded-lg bg-neutral-500/5 p-3 transition-colors hover:bg-neutral-500/10">
+        <Link href="/chargers" className="flex min-h-[5.25rem] flex-col justify-center rounded-lg border border-transparent bg-neutral-500/5 p-3 transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]">
           <p className="text-xl font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">{online}</p>
-          <p className="text-xs text-neutral-500">Chargers online</p>
+          <p className="text-xs text-neutral-500">Online</p>
         </Link>
-        <Link href="/chargers" className="rounded-lg bg-neutral-500/5 p-3 transition-colors hover:bg-neutral-500/10">
+        <Link href="/chargers" className="flex min-h-[5.25rem] flex-col justify-center rounded-lg border border-transparent bg-neutral-500/5 p-3 transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]">
           <p className={`text-xl font-semibold tabular-nums ${offline > 0 ? 'text-amber-600 dark:text-amber-500' : ''}`}>
             {offline}
           </p>
-          <p className="text-xs text-neutral-500">Chargers offline</p>
+          <p className="text-xs text-neutral-500">Offline</p>
         </Link>
-        <Link href="/chargers" className="rounded-lg bg-neutral-500/5 p-3 transition-colors hover:bg-neutral-500/10">
+        <Link href="/chargers" className="flex min-h-[5.25rem] flex-col justify-center rounded-lg border border-transparent bg-neutral-500/5 p-3 transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]">
           <p className={`text-xl font-semibold tabular-nums ${fleet.chargersByStatus.faulted > 0 ? 'text-red-600 dark:text-red-500' : ''}`}>
             {fleet.chargersByStatus.faulted}
           </p>
           <p className="text-xs text-neutral-500">Faulted</p>
         </Link>
-        <Link href="/chargers" className="rounded-lg bg-neutral-500/5 p-3 transition-colors hover:bg-neutral-500/10">
+        <Link href="/chargers" className="flex min-h-[5.25rem] flex-col justify-center rounded-lg border border-transparent bg-neutral-500/5 p-3 transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-soft)]">
           <p className="text-xl font-semibold tabular-nums">{fleet.chargersByStatus.maintenance}</p>
           <p className="text-xs text-neutral-500">Maintenance</p>
         </Link>
@@ -126,7 +130,7 @@ export function FleetStatus({ fleet }: { fleet: FleetSnapshot }) {
       <ul className="mt-1.5 flex flex-wrap gap-x-5 gap-y-1.5 text-sm">
         {Object.entries(connectors).map(([status, count]) => (
           <li key={status} className="flex items-baseline gap-1.5">
-            <span className={`font-medium tabular-nums ${CONNECTOR_TONE[status] ?? ''}`}>{count}</span>
+            <span className={`font-medium tabular-nums ${TONE_TEXT[statusTone(status)]}`}>{count}</span>
             <span className="text-neutral-500">{status}</span>
           </li>
         ))}

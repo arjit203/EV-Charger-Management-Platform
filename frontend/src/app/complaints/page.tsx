@@ -69,7 +69,7 @@ function ComplaintsContent() {
         <select
           value={status}
           onChange={(event) => setStatus(event.target.value as ComplaintStatus | '')}
-          className="rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm dark:border-neutral-700"
+          className="rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
         >
           <option value="">All statuses</option>
           {STATUSES.map((option) => (
@@ -82,7 +82,7 @@ function ComplaintsContent() {
         <select
           value={category}
           onChange={(event) => setCategory(event.target.value as ComplaintCategory | '')}
-          className="rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm dark:border-neutral-700"
+          className="rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
         >
           <option value="">All categories</option>
           {CATEGORIES.map((option) => (
@@ -96,7 +96,7 @@ function ComplaintsContent() {
           <select
             value={priority}
             onChange={(event) => setPriority(event.target.value as ComplaintPriority | '')}
-            className="rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm dark:border-neutral-700"
+            className="rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
           >
             <option value="">Any priority</option>
             {PRIORITIES.map((option) => (

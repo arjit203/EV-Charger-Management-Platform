@@ -59,7 +59,7 @@ function NewTariffContent() {
             <select
               value={companyId}
               onChange={(event) => setCompanyId(event.target.value)}
-              className="mt-1.5 w-full rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm dark:border-neutral-700"
+              className="mt-1.5 w-full rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
             >
               <option value="">Select a company…</option>
               {state.data.map((company) => (

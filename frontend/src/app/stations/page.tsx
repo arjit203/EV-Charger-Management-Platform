@@ -17,6 +17,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useAsyncData } from '@/hooks/useAsyncData';
 import { listStations } from '@/services/station.service';
 import type { Station, StationStatus } from '@/types/api';
+import { buttonClasses } from '@/components/ui/Button';
 
 function statusTone(status: StationStatus) {
   if (status === 'active') return 'good' as const;
@@ -73,7 +74,7 @@ function StationListContent() {
         {canCreate ? (
           <Link
             href="/stations/new"
-            className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 dark:bg-white dark:text-neutral-900"
+            className={buttonClasses('primary', 'md')}
           >
             New station
           </Link>
@@ -84,12 +85,12 @@ function StationListContent() {
         <input
           type="search" placeholder="Search name, code or address…"
           value={search} onChange={(e) => setSearch(e.target.value)}
-          className="min-w-0 flex-1 rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-500 dark:border-neutral-700"
+          className="min-w-0 flex-1 rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
         />
         <select
           value={status} onChange={(e) => setStatus(e.target.value as StationStatus | '')}
           aria-label="Filter by status"
-          className="rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-500 dark:border-neutral-700"
+          className="rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
         >
           <option value="">All statuses</option>
           <option value="active">Active</option>

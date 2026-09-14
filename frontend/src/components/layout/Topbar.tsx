@@ -16,6 +16,8 @@ import { useAuth } from '@/context/AuthContext';
 import { useSocket } from '@/context/SocketContext';
 import { ROLE_LABELS, type User } from '@/types/api';
 import { titleForPath } from './navigation';
+import { IconMenu } from './icons';
+import { Button } from '@/components/ui/Button';
 
 export function Topbar({
   user,
@@ -42,12 +44,12 @@ export function Topbar({
         type="button"
         onClick={onOpenNav}
         aria-label="Open navigation"
-        className="rounded-lg border border-neutral-300 px-2.5 py-1.5 text-sm lg:hidden dark:border-neutral-700"
+        className="rounded-lg border border-neutral-300 p-2 text-neutral-600 transition-colors hover:bg-neutral-500/10 lg:hidden dark:border-neutral-700 dark:text-neutral-300"
       >
-        ☰
+        <IconMenu className="h-4 w-4" />
       </button>
 
-      <h1 className="truncate text-base font-semibold">{titleForPath(pathname)}</h1>
+      <h1 className="truncate text-base font-semibold tracking-tight">{titleForPath(pathname)}</h1>
 
       <div className="ml-auto flex items-center gap-2 sm:gap-3">
         {/*
@@ -73,13 +75,9 @@ export function Topbar({
           <p className="text-[11px] text-neutral-500">{ROLE_LABELS[user.role]}</p>
         </div>
 
-        <button
-          type="button"
-          onClick={handleLogout}
-          className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm transition-colors hover:bg-neutral-500/10 dark:border-neutral-700"
-        >
+        <Button variant="secondary" onClick={handleLogout}>
           Sign out
-        </button>
+        </Button>
       </div>
     </header>
   );

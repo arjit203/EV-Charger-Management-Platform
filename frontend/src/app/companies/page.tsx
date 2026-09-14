@@ -16,6 +16,7 @@ import { StatusBadge } from '@/components/StatusBadge';
 import { useAsyncData } from '@/hooks/useAsyncData';
 import { listCompanies } from '@/services/company.service';
 import type { Company, CompanyStatus } from '@/types/api';
+import { buttonClasses } from '@/components/ui/Button';
 
 function CompanyRow({ company }: { company: Company }) {
   return (
@@ -61,7 +62,7 @@ function CompanyListContent() {
         </div>
         <Link
           href="/companies/new"
-          className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 dark:bg-white dark:text-neutral-900"
+          className={buttonClasses('primary', 'md')}
         >
           New company
         </Link>
@@ -73,13 +74,13 @@ function CompanyListContent() {
           placeholder="Search by name…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="min-w-0 flex-1 rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-500 dark:border-neutral-700"
+          className="min-w-0 flex-1 rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
         />
         <select
           value={status}
           onChange={(e) => setStatus(e.target.value as CompanyStatus | '')}
           aria-label="Filter by status"
-          className="rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-500 dark:border-neutral-700"
+          className="rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
         >
           <option value="">All statuses</option>
           <option value="active">Active</option>

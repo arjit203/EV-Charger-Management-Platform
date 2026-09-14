@@ -24,6 +24,7 @@ import {
   type VehicleInput,
 } from '@/services/vehicle.service';
 import { CONNECTOR_LABELS, type Vehicle } from '@/types/api';
+import { buttonClasses } from '@/components/ui/Button';
 
 function VehicleCard({
   vehicle,
@@ -100,7 +101,7 @@ function VehicleCard({
           <div className="mt-4 flex gap-2">
             <button
               type="button" onClick={() => setIsEditing(true)}
-              className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm font-medium transition-colors hover:bg-neutral-500/10 dark:border-neutral-700"
+              className={buttonClasses('secondary')}
             >
               Edit
             </button>
@@ -143,7 +144,7 @@ function MyVehiclesContent() {
         {!isAdding ? (
           <button
             type="button" onClick={() => setIsAdding(true)}
-            className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 dark:bg-white dark:text-neutral-900"
+            className={buttonClasses('primary', 'md')}
           >
             Add vehicle
           </button>

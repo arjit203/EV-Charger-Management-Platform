@@ -20,6 +20,7 @@ import { useAuth } from '@/context/AuthContext';
 import { extractFieldErrors, toMessage } from '@/lib/formatApiError';
 import { updateMyProfile } from '@/services/user.service';
 import { ROLE_LABELS } from '@/types/api';
+import { buttonClasses } from '@/components/ui/Button';
 
 function ProfileContent() {
   const { user, updateCurrentUser } = useAuth();
@@ -105,7 +106,7 @@ function ProfileContent() {
 
         <button
           type="submit" disabled={isSubmitting}
-          className="rounded-lg bg-neutral-900 px-4 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50 dark:bg-white dark:text-neutral-900"
+          className={buttonClasses('primary', 'md')}
         >
           {isSubmitting ? 'Saving…' : 'Save changes'}
         </button>

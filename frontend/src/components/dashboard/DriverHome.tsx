@@ -30,6 +30,7 @@ import { StatusBadge } from '@/components/StatusBadge';
 import { NotificationBell } from '@/components/NotificationBell';
 import { useAuth } from '@/context/AuthContext';
 import { ROLE_LABELS } from '@/types/api';
+import { buttonClasses } from '@/components/ui/Button';
 
 /** What each role will be able to reach once later modules land. */
 /**
@@ -89,7 +90,7 @@ export function DriverHome() {
           <button
             type="button"
             onClick={handleLogout}
-            className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm font-medium transition-colors hover:bg-neutral-500/10 dark:border-neutral-700"
+            className={buttonClasses('secondary')}
           >
             Sign out
           </button>

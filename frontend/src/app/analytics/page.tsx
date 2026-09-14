@@ -248,7 +248,7 @@ function AnalyticsDashboard() {
             value={from}
             max={to}
             onChange={(event) => setFrom(event.target.value)}
-            className="rounded-lg border border-neutral-300 bg-transparent px-2.5 py-1.5 text-sm dark:border-neutral-700"
+            className="rounded-lg border border-neutral-300 bg-transparent px-2.5 py-1.5 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
           />
         </label>
 
@@ -259,7 +259,7 @@ function AnalyticsDashboard() {
             value={to}
             min={from}
             onChange={(event) => setTo(event.target.value)}
-            className="rounded-lg border border-neutral-300 bg-transparent px-2.5 py-1.5 text-sm dark:border-neutral-700"
+            className="rounded-lg border border-neutral-300 bg-transparent px-2.5 py-1.5 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
           />
         </label>
 
@@ -270,7 +270,7 @@ function AnalyticsDashboard() {
             <select
               value={companyId}
               onChange={(event) => setCompanyId(event.target.value)}
-              className="rounded-lg border border-neutral-300 bg-transparent px-2.5 py-1.5 text-sm dark:border-neutral-700"
+              className="rounded-lg border border-neutral-300 bg-transparent px-2.5 py-1.5 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
             >
               <option value="">All companies</option>
               {companiesState.status === 'ok' &&

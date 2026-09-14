@@ -26,6 +26,7 @@ import {
   type StationInput,
 } from '@/services/station.service';
 import { STATION_STATUS_LABELS, type Station, type StationStatus } from '@/types/api';
+import { buttonClasses } from '@/components/ui/Button';
 
 function statusTone(status: StationStatus) {
   if (status === 'active') return 'good' as const;
@@ -85,7 +86,7 @@ function StationDetails({
           <div className="flex flex-wrap gap-2">
             {!isEditing ? (
               <button type="button" onClick={() => setIsEditing(true)}
-                className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm font-medium transition-colors hover:bg-neutral-500/10 dark:border-neutral-700">
+                className={buttonClasses('secondary')}>
                 Edit
               </button>
             ) : null}
@@ -106,7 +107,7 @@ function StationDetails({
             {isPlatformAdmin ? (
               station.status === 'suspended' ? (
                 <button type="button" onClick={() => void changeStatus('active')} disabled={isBusy}
-                  className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm font-medium dark:border-neutral-700">
+                  className={buttonClasses('secondary')}>
                   Lift suspension
                 </button>
               ) : (
@@ -190,12 +191,12 @@ function StationDetails({
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
           <Link href={`/chargers?stationId=${station.id}`}
-            className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm font-medium transition-colors hover:bg-neutral-500/10 dark:border-neutral-700">
+            className={buttonClasses('secondary')}>
             View chargers
           </Link>
           {canManage ? (
             <Link href={`/chargers/new?stationId=${station.id}`}
-              className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm font-medium transition-colors hover:bg-neutral-500/10 dark:border-neutral-700">
+              className={buttonClasses('secondary')}>
               Add charger
             </Link>
           ) : null}
@@ -226,7 +227,7 @@ function StationDetailContent() {
             not reachable, whatever id is put in the URL.
           </p>
           <button type="button" onClick={() => router.back()}
-            className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm font-medium dark:border-neutral-700">
+            className={buttonClasses('secondary')}>
             Go back
           </button>
         </div>

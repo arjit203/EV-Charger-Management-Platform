@@ -101,7 +101,7 @@ function StaffControls({
           onChange={(event) => setResolution(event.target.value)}
           rows={4}
           placeholder="What did you find, and what did you do?"
-          className="mt-1.5 w-full rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm dark:border-neutral-700"
+          className="mt-1.5 w-full rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
         />
       </label>
 

@@ -19,6 +19,7 @@ import { extractFieldErrors, toMessage } from '@/lib/formatApiError';
 import { listCompanies } from '@/services/company.service';
 import type { StationInput } from '@/services/station.service';
 import type { Station } from '@/types/api';
+import { buttonClasses } from '@/components/ui/Button';
 
 interface StationFormProps {
   initial?: Station;
@@ -171,7 +172,7 @@ export function StationForm({
 
       <div className="flex items-center gap-3">
         <button type="submit" disabled={isSubmitting}
-          className="rounded-lg bg-neutral-900 px-4 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50 dark:bg-white dark:text-neutral-900">
+          className={buttonClasses('primary', 'md')}>
           {isSubmitting ? 'Saving…' : submitLabel}
         </button>
         {onCancel ? (

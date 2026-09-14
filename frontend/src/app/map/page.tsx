@@ -132,7 +132,7 @@ function StationMapPage() {
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder={isDriver ? 'Name, address or city' : 'Name, code or address'}
-            className="rounded-lg border border-neutral-300 bg-transparent px-2.5 py-1.5 text-sm dark:border-neutral-700"
+            className="rounded-lg border border-neutral-300 bg-transparent px-2.5 py-1.5 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
           />
         </label>
 
@@ -142,7 +142,7 @@ function StationMapPage() {
             value={city}
             onChange={(event) => setCity(event.target.value)}
             placeholder="Exact city"
-            className="w-36 rounded-lg border border-neutral-300 bg-transparent px-2.5 py-1.5 text-sm dark:border-neutral-700"
+            className="w-36 rounded-lg border border-neutral-300 bg-transparent px-2.5 py-1.5 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
           />
         </label>
 
@@ -154,7 +154,7 @@ function StationMapPage() {
             <select
               value={status}
               onChange={(event) => setStatus(event.target.value as StationStatus | '')}
-              className="rounded-lg border border-neutral-300 bg-transparent px-2.5 py-1.5 text-sm dark:border-neutral-700"
+              className="rounded-lg border border-neutral-300 bg-transparent px-2.5 py-1.5 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
             >
               {STATUS_OPTIONS.map((option) => (
                 <option key={option || 'any'} value={option}>

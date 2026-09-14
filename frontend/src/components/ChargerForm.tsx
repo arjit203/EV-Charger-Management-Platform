@@ -18,6 +18,7 @@ import { extractFieldErrors, toMessage } from '@/lib/formatApiError';
 import type { ChargerInput } from '@/services/charger.service';
 import { listStations } from '@/services/station.service';
 import type { Charger, ChargerType } from '@/types/api';
+import { buttonClasses } from '@/components/ui/Button';
 
 interface ChargerFormProps {
   initial?: Charger;
@@ -156,7 +157,7 @@ export function ChargerForm({
             <select
               id="chargerType" value={form.chargerType}
               onChange={(e) => setForm((prev) => ({ ...prev, chargerType: e.target.value as ChargerType }))}
-              className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-500 dark:border-neutral-700"
+              className="w-full rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
             >
               <option value="DC">DC — fast charging</option>
               <option value="AC">AC — slower, via the car&apos;s onboard charger</option>
@@ -175,7 +176,7 @@ export function ChargerForm({
 
       <div className="flex items-center gap-3">
         <button type="submit" disabled={isSubmitting}
-          className="rounded-lg bg-neutral-900 px-4 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50 dark:bg-white dark:text-neutral-900">
+          className={buttonClasses('primary', 'md')}>
           {isSubmitting ? 'Saving…' : submitLabel}
         </button>
         {onCancel ? (

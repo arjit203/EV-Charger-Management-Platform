@@ -98,7 +98,7 @@ function NewComplaintContent() {
           <select
             value={category}
             onChange={(event) => setCategory(event.target.value as ComplaintCategory)}
-            className="mt-1.5 w-full rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm dark:border-neutral-700"
+            className="mt-1.5 w-full rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
           >
             {CATEGORIES.map((option) => (
               <option key={option} value={option}>
@@ -125,7 +125,7 @@ function NewComplaintContent() {
             value={description}
             onChange={(event) => setDescription(event.target.value)}
             rows={5}
-            className="mt-1.5 w-full rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm dark:border-neutral-700"
+            className="mt-1.5 w-full rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
             required
           />
           <span className="mt-1 block text-xs text-neutral-500">
@@ -138,7 +138,7 @@ function NewComplaintContent() {
           <select
             value={priority}
             onChange={(event) => setPriority(event.target.value as ComplaintPriority)}
-            className="mt-1.5 w-full rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm dark:border-neutral-700"
+            className="mt-1.5 w-full rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
           >
             {PRIORITIES.map((option) => (
               <option key={option} value={option}>

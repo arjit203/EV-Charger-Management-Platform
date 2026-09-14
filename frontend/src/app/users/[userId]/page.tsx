@@ -12,6 +12,7 @@ import { useAsyncData } from '@/hooks/useAsyncData';
 import { toMessage } from '@/lib/formatApiError';
 import { getUser, setUserStatus, updateUser } from '@/services/user.service';
 import { ROLE_LABELS, type User } from '@/types/api';
+import { buttonClasses } from '@/components/ui/Button';
 
 function UserDetails({ user, onChanged }: { user: User; onChanged: (user: User) => void }) {
   const { user: me } = useAuth();
@@ -71,7 +72,7 @@ function UserDetails({ user, onChanged }: { user: User; onChanged: (user: User) 
           {!isEditing ? (
             <button
               type="button" onClick={() => setIsEditing(true)}
-              className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm font-medium transition-colors hover:bg-neutral-500/10 dark:border-neutral-700"
+              className={buttonClasses('secondary')}
             >
               Edit
             </button>
@@ -120,7 +121,7 @@ function UserDetails({ user, onChanged }: { user: User; onChanged: (user: User) 
             <div className="flex gap-3">
               <button
                 type="submit" disabled={isBusy}
-                className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-white dark:text-neutral-900"
+                className={buttonClasses('primary', 'md')}
               >
                 {isBusy ? 'Saving…' : 'Save changes'}
               </button>
@@ -179,7 +180,7 @@ function UserDetailContent() {
           </p>
           <button
             type="button" onClick={() => router.back()}
-            className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm font-medium dark:border-neutral-700"
+            className={buttonClasses('secondary')}
           >
             Go back
           </button>

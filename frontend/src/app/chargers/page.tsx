@@ -17,6 +17,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useAsyncData } from '@/hooks/useAsyncData';
 import { listChargers } from '@/services/charger.service';
 import type { Charger, ChargerStatus, ChargerType } from '@/types/api';
+import { buttonClasses } from '@/components/ui/Button';
 
 export function chargerStatusTone(status: ChargerStatus) {
   if (status === 'available') return 'good' as const;
@@ -91,7 +92,7 @@ function ChargerListContent() {
         {canCreate ? (
           <Link
             href={stationId ? `/chargers/new?stationId=${stationId}` : '/chargers/new'}
-            className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 dark:bg-white dark:text-neutral-900"
+            className={buttonClasses('primary', 'md')}
           >
             Add charger
           </Link>
@@ -102,12 +103,12 @@ function ChargerListContent() {
         <input
           type="search" placeholder="Search name, code, OCPP id or model…"
           value={search} onChange={(e) => setSearch(e.target.value)}
-          className="min-w-0 flex-1 rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-500 dark:border-neutral-700"
+          className="min-w-0 flex-1 rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
         />
         <select
           value={chargerType} onChange={(e) => setChargerType(e.target.value as ChargerType | '')}
           aria-label="Filter by type"
-          className="rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-500 dark:border-neutral-700"
+          className="rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
         >
           <option value="">All types</option>
           <option value="DC">DC</option>
@@ -116,7 +117,7 @@ function ChargerListContent() {
         <select
           value={status} onChange={(e) => setStatus(e.target.value as ChargerStatus | '')}
           aria-label="Filter by status"
-          className="rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-500 dark:border-neutral-700"
+          className="rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
         >
           <option value="">All statuses</option>
           <option value="available">Available</option>

@@ -27,6 +27,7 @@ import {
 } from '@/services/company.service';
 import { createStaffUser } from '@/services/user.service';
 import { COMPANY_TYPE_LABELS, ROLE_LABELS, type Company } from '@/types/api';
+import { buttonClasses } from '@/components/ui/Button';
 
 /* ------------------------------------------------------------------ staff -- */
 
@@ -94,7 +95,7 @@ function AddStaffForm({ companyId, onCreated }: { companyId: string; onCreated: 
           <select
             id="staffRole" value={form.role}
             onChange={(e) => setForm((prev) => ({ ...prev, role: e.target.value as 'cpo_admin' | 'operator' }))}
-            className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-500 dark:border-neutral-700"
+            className="w-full rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
           >
             <option value="operator">Operator</option>
             <option value="cpo_admin">CPO Admin</option>
@@ -104,7 +105,7 @@ function AddStaffForm({ companyId, onCreated }: { companyId: string; onCreated: 
 
       <button
         type="submit" disabled={isSubmitting}
-        className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50 dark:bg-white dark:text-neutral-900"
+        className={buttonClasses('primary', 'md')}
       >
         {isSubmitting ? 'Creating…' : 'Add staff member'}
       </button>
@@ -160,7 +161,7 @@ function CompanyDetails({ company, canManage, onChanged }: {
             {!isEditing ? (
               <button
                 type="button" onClick={() => setIsEditing(true)}
-                className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm font-medium transition-colors hover:bg-neutral-500/10 dark:border-neutral-700"
+                className={buttonClasses('secondary')}
               >
                 Edit
               </button>
@@ -264,7 +265,7 @@ function CompanyDetailContent() {
           </p>
           <button
             type="button" onClick={() => router.back()}
-            className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm font-medium dark:border-neutral-700"
+            className={buttonClasses('secondary')}
           >
             Go back
           </button>

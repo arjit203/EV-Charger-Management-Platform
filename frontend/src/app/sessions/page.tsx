@@ -77,7 +77,7 @@ function SessionListContent() {
         <select
           value={status}
           onChange={(event) => setStatus(event.target.value as SessionStatus | '')}
-          className="rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm dark:border-neutral-700"
+          className="rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
         >
           <option value="">All statuses</option>
           {STATUS_OPTIONS.map((option) => (

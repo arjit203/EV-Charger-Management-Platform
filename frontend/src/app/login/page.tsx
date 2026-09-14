@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { FormField } from '@/components/FormField';
 import { useAuth } from '@/context/AuthContext';
 import { extractFieldErrors, toMessage } from '@/lib/formatApiError';
+import { buttonClasses } from '@/components/ui/Button';
 
 export default function LoginPage() {
   const { login, user, isLoading } = useAuth();
@@ -42,11 +43,27 @@ export default function LoginPage() {
 
   return (
     <main className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center gap-6 px-6 py-16">
+      {/*
+        * A product anchor, not a landing page. The mark plus two lines of plain description —
+        * the copy is taken as given rather than iterated on, because this is a sign-in screen,
+        * not a branding exercise.
+        */}
       <header>
-        <p className="text-xs font-medium uppercase tracking-widest text-neutral-500">EV-CMS</p>
-        <h1 className="mt-1 text-2xl font-semibold">Sign in</h1>
-        <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
-          Access your charging dashboard.
+        <div className="flex items-center gap-2.5">
+          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--accent)] text-sm font-bold text-[var(--accent-contrast)]">
+            EV
+          </span>
+          <span>
+            <span className="block text-base font-semibold tracking-tight">EV-CMS</span>
+            <span className="block text-xs text-neutral-500">
+              EV Charging Management Platform
+            </span>
+          </span>
+        </div>
+
+        <h1 className="mt-7 text-2xl font-semibold tracking-tight">Sign in</h1>
+        <p className="mt-1.5 text-sm text-neutral-600 dark:text-neutral-400">
+          Manage stations, chargers and charging operations.
         </p>
       </header>
 
@@ -85,7 +102,7 @@ export default function LoginPage() {
         <button
           type="submit"
           disabled={isSubmitting}
-          className="w-full rounded-lg bg-neutral-900 px-4 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50 dark:bg-white dark:text-neutral-900"
+          className={buttonClasses('primary', 'md', 'w-full')}
         >
           {isSubmitting ? 'Signing in…' : 'Sign in'}
         </button>

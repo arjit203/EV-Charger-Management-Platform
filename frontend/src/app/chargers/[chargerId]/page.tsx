@@ -45,6 +45,7 @@ import {
   type ConnectorStatus,
   type ConnectorType,
 } from '@/types/api';
+import { buttonClasses } from '@/components/ui/Button';
 
 const CHARGER_STATUSES: ChargerStatus[] = ['available', 'unavailable', 'faulted', 'maintenance'];
 /**
@@ -286,7 +287,7 @@ function ConnectorSection({ chargerId, canManage }: { chargerId: string; canMana
         </div>
         {canManage && !isAdding ? (
           <button type="button" onClick={() => setIsAdding(true)}
-            className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm font-medium transition-colors hover:bg-neutral-500/10 dark:border-neutral-700">
+            className={buttonClasses('secondary')}>
             Add connector
           </button>
         ) : null}
@@ -308,7 +309,7 @@ function ConnectorSection({ chargerId, canManage }: { chargerId: string; canMana
               <label htmlFor="connectorType" className="block text-sm font-medium">Type</label>
               <select id="connectorType" value={form.connectorType}
                 onChange={(e) => setForm((p) => ({ ...p, connectorType: e.target.value as ConnectorType }))}
-                className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-500 dark:border-neutral-700">
+                className="w-full rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700">
                 {(Object.keys(CONNECTOR_LABELS) as ConnectorType[]).map((type) => (
                   <option key={type} value={type}>{type}</option>
                 ))}
@@ -319,7 +320,7 @@ function ConnectorSection({ chargerId, canManage }: { chargerId: string; canMana
           </div>
           <div className="flex gap-3">
             <button type="submit" disabled={isBusy}
-              className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-white dark:text-neutral-900">
+              className={buttonClasses('primary', 'md')}>
               {isBusy ? 'Adding…' : 'Add connector'}
             </button>
             <button type="button" onClick={() => { setIsAdding(false); setError(null); }}
@@ -448,7 +449,7 @@ function ChargerDetails({ charger, onChanged }: { charger: Charger; onChanged: (
           <div className="flex flex-wrap items-center gap-2">
             {!isEditing ? (
               <button type="button" onClick={() => setIsEditing(true)}
-                className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm font-medium transition-colors hover:bg-neutral-500/10 dark:border-neutral-700">
+                className={buttonClasses('secondary')}>
                 Edit
               </button>
             ) : null}
@@ -537,7 +538,7 @@ function ChargerDetailContent() {
             another company, so it is not reachable whatever id is used.
           </p>
           <button type="button" onClick={() => router.back()}
-            className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm font-medium dark:border-neutral-700">
+            className={buttonClasses('secondary')}>
             Go back
           </button>
         </div>

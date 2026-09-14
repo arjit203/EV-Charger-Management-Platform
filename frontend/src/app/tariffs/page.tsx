@@ -98,7 +98,7 @@ function TariffListContent() {
         <select
           value={status}
           onChange={(event) => setStatus(event.target.value as TariffStatus | '')}
-          className="rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm dark:border-neutral-700"
+          className="rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
         >
           <option value="">All tariffs</option>
           <option value="active">Active</option>
