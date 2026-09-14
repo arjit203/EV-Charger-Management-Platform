@@ -109,6 +109,19 @@ guarantee rebuilding it once Module 5 exists. Deferred to Module 5 or 14, whiche
 first. **This is tested**, not merely unspecified: drivers get 403 on every station route, and
 `/stations/public` does not exist.
 
+> **RESOLVED IN MODULE 14.** Module 5 supplied the connectors and Module 6 gave them live
+> status, so the information that was missing now exists and `GET /stations/public` was built
+> for the map. The deferral was correct: it was cashed in exactly when something needed it.
+>
+> What did **not** change: a driver still has **no administrative access** to stations — 403 on
+> the list, the detail, create, update and status routes. And the new endpoint still requires a
+> token; "public" describes the *content* of the response, not the access to it.
+>
+> Module 14 also made it the project's **first deliberately cross-company read**, so it filters
+> on two levels — the station must be active **and** its owning company must be active, or a
+> suspended CPO would keep advertising to drivers through the one route that does not apply
+> company scope.
+
 ## 5. Status — a deliberate permission split
 
 | Status | Meaning | Who may set it |
@@ -185,6 +198,16 @@ Module 3.
 
 Module 14's map needs `$near` queries, which require a GeoJSON `location` field and a
 `2dsphere` index. **Deliberately not added now**, because there is no geospatial query yet.
+
+> **MODULE 14 CORRECTED THIS PREDICTION, and the deferral SURVIVES.**
+>
+> The map does not need `$near`. **Drawing** a marker needs two numbers; **selecting rows by
+> proximity** needs GeoJSON and a `2dsphere` index — and nearby-station search was explicitly
+> out of Module 14's scope. So no geo index was added, because an unused one costs write
+> performance on every station write to serve zero reads.
+>
+> The trigger is now named precisely: **the first `$near` query** — a radius filter, or
+> "stations near me" sorted by distance. Everything below still applies when that day comes.
 
 The migration is **additive and non-breaking**: add a `location: { type: 'Point', coordinates:
 [longitude, latitude] }` field, backfill it from the existing numbers, and create the index. No

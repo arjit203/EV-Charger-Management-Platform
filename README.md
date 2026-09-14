@@ -103,7 +103,7 @@ with no active price cannot sell electricity.
 | 11    | Complaints / Support            | ✅ Complete |
 | 12    | Notifications                   | ✅ Complete |
 | 13    | Analytics & Dashboards          | ✅ Complete |
-| 14    | Charging Station Map            | Not started |
+| 14    | Charging Station Map            | ✅ Complete |
 | 15    | Admin / Operations Dashboard    | Not started |
 | 16    | Testing / QA                    | Not started |
 | 17    | Deployment                      | Not started |

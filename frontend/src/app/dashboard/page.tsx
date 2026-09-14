@@ -58,6 +58,7 @@ const ROLE_LINKS: Record<Role, { href: string; label: string }[]> = {
     { href: '/companies', label: 'Companies' },
     { href: '/monitor', label: 'Live operations' },
     { href: '/stations', label: 'Stations' },
+    { href: '/map', label: 'Station map' },
     { href: '/chargers', label: 'Chargers' },
     { href: '/sessions', label: 'Charging sessions' },
     { href: '/tariffs', label: 'Tariffs' },
@@ -71,6 +72,7 @@ const ROLE_LINKS: Record<Role, { href: string; label: string }[]> = {
     { href: '/my-company', label: 'My company' },
     { href: '/monitor', label: 'Live operations' },
     { href: '/stations', label: 'Stations' },
+    { href: '/map', label: 'Station map' },
     { href: '/chargers', label: 'Chargers' },
     { href: '/sessions', label: 'Charging sessions' },
     { href: '/tariffs', label: 'Tariffs' },
@@ -87,6 +89,7 @@ const ROLE_LINKS: Record<Role, { href: string; label: string }[]> = {
     { href: '/my-company', label: 'My company' },
     { href: '/monitor', label: 'Live operations' },
     { href: '/stations', label: 'Stations' },
+    { href: '/map', label: 'Station map' },
     { href: '/chargers', label: 'Chargers' },
     { href: '/sessions', label: 'Charging sessions' },
     { href: '/tariffs', label: 'Tariffs' },
@@ -99,6 +102,7 @@ const ROLE_LINKS: Record<Role, { href: string; label: string }[]> = {
   // thing in the whole project a driver can actually DO.
   driver: [
     { href: '/charge', label: 'Start charging' },
+    { href: '/map', label: 'Find a station' },
     { href: '/wallet', label: 'Wallet' },
     { href: '/complaints', label: 'Support' },
     { href: '/notifications', label: 'Notifications' },

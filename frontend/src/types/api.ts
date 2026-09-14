@@ -778,3 +778,68 @@ export interface StationAnalyticsPayload {
   range: { from: string; to: string };
   stations: StationBreakdown[];
 }
+
+/* -------------------------------------------------------------------------- */
+/* Module 14 — station map                                                    */
+/* -------------------------------------------------------------------------- */
+
+/** Availability counted from Modules 5 and 6. A request-time snapshot, not a reservation. */
+export interface StationAvailability {
+  chargers: number;
+  chargersOnline: number;
+  totalConnectors: number;
+  availableConnectors: number;
+}
+
+/**
+ * A staff marker, from `GET /stations/map`. Company-scoped by the backend.
+ *
+ * `latitude` / `longitude` are typed as `number` because the model requires them — but the
+ * map still guards with `Number.isFinite` before rendering. A row written directly to the
+ * database can defeat any type, and one bad coordinate would otherwise throw inside Leaflet
+ * and blank the whole map.
+ */
+export interface MapStation extends StationAvailability {
+  id: string;
+  name: string;
+  stationCode: string;
+  address: string;
+  city: string;
+  state: string;
+  latitude: number;
+  longitude: number;
+  status: StationStatus;
+  companyId: string;
+}
+
+/**
+ * A driver marker, from `GET /stations/public`.
+ *
+ * A DELIBERATELY NARROWER TYPE — not `MapStation` with fields optional. There is no
+ * `companyId` or `stationCode` in this shape at all, so no component can render a company
+ * identity to a driver even by accident: it would not compile.
+ */
+export interface PublicMapStation extends StationAvailability {
+  id: string;
+  name: string;
+  address: string;
+  city: string;
+  state: string;
+  latitude: number;
+  longitude: number;
+  status: StationStatus;
+}
+
+/** What both map endpoints return. `truncated` says the cap clipped the view. */
+export interface MapStationsPayload<T> {
+  stations: T[];
+  truncated: boolean;
+}
+
+/** The union the map UI actually renders. Everything it uses exists on both shapes. */
+export type AnyMapStation = MapStation | PublicMapStation;
+
+/** Narrowing helper — the one place the UI is allowed to ask "is this the staff shape?". */
+export function isStaffMapStation(station: AnyMapStation): station is MapStation {
+  return 'companyId' in station;
+}

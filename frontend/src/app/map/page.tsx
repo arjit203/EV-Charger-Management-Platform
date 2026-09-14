@@ -1,0 +1,342 @@
+'use client';
+
+/**
+ * Module 14 — the charging station map.
+ *
+ * The FIRST page in this project available to all four roles, and the first station-related
+ * screen a driver has ever had.
+ *
+ * WHICH ENDPOINT IS CALLED IS DECIDED BY ROLE — and that is a convenience, not the security
+ * boundary. A driver who calls `/stations/map` directly gets 403 from the server, and that
+ * is tested. Nothing on this page is load-bearing for authorisation.
+ *
+ *   staff   GET /stations/map      company-scoped, all statuses, carries company fields
+ *   driver  GET /stations/public   every company's ACTIVE stations, company identity stripped
+ *
+ * SELECTION IS ONE PIECE OF STATE, owned here and read by both panes. The list and the map
+ * do not each keep their own idea of what is selected — that is how they would drift.
+ */
+
+import { useCallback, useMemo, useState } from 'react';
+import dynamic from 'next/dynamic';
+import Link from 'next/link';
+
+import { RequireAuth } from '@/components/RequireAuth';
+import { StationList } from '@/components/map/StationList';
+import { hasUsableCoordinates } from '@/components/map/coordinates';
+import { useAuth } from '@/context/AuthContext';
+import { useAsyncData } from '@/hooks/useAsyncData';
+import { toMessage } from '@/lib/formatApiError';
+import { getMapStations, getPublicStations } from '@/services/station.service';
+import type { AnyMapStation, StationStatus } from '@/types/api';
+import { isStaffMapStation } from '@/types/api';
+
+/**
+ * Leaflet reads `window` at MODULE LOAD time, so the map is loaded with `ssr: false`.
+ *
+ * A plain `'use client'` would not be enough — client components are still prerendered on
+ * the server during `next build`, and a bare import here would fail the build rather than
+ * merely misbehaving in the browser. `ssr: false` is only permitted inside a Client
+ * Component, which this page is.
+ */
+const StationMap = dynamic(() => import('@/components/map/StationMap'), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-full items-center justify-center bg-neutral-200 dark:bg-neutral-900">
+      <p className="text-sm text-neutral-500">Loading map&hellip;</p>
+    </div>
+  ),
+});
+
+const STATUS_OPTIONS: (StationStatus | '')[] = ['', 'active', 'inactive', 'suspended'];
+
+function StationMapPage() {
+  const { user } = useAuth();
+  const isDriver = user?.role === 'driver';
+
+  const [search, setSearch] = useState('');
+  const [city, setCity] = useState('');
+  const [status, setStatus] = useState<StationStatus | ''>('');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [listOpenOnMobile, setListOpenOnMobile] = useState(true);
+
+  /*
+   * SERVER-SIDE filtering, reusing the query parameters Module 4 already built. A second,
+   * client-side filter would be a duplicate way to answer one question — the thing this
+   * project has refused since Module 9.
+   */
+  const load = useCallback(async (): Promise<AnyMapStation[]> => {
+    if (isDriver) {
+      const result = await getPublicStations({
+        search: search || undefined,
+        city: city || undefined,
+      });
+      return result.stations;
+    }
+
+    const result = await getMapStations({
+      search: search || undefined,
+      city: city || undefined,
+      status: status || undefined,
+    });
+    return result.stations;
+  }, [isDriver, search, city, status]);
+
+  const { state, reload } = useAsyncData(load);
+
+  const stations = useMemo(() => (state.status === 'ok' ? state.data : []), [state]);
+  const placeableCount = useMemo(
+    () => stations.filter(hasUsableCoordinates).length,
+    [stations],
+  );
+
+  const selected = stations.find((station) => station.id === selectedId) ?? null;
+
+  const handleSelect = useCallback((stationId: string) => {
+    setSelectedId(stationId);
+    setListOpenOnMobile(true);
+  }, []);
+
+  return (
+    <main className="mx-auto flex w-full max-w-7xl flex-col gap-4 p-4 sm:p-6">
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold">
+            {isDriver ? 'Find a charging station' : 'Station map'}
+          </h1>
+          <p className="text-sm text-neutral-500">
+            {isDriver
+              ? 'Active stations from every operator on the platform.'
+              : 'Your company’s stations, plotted from their stored coordinates.'}
+          </p>
+        </div>
+        <Link
+          href="/dashboard"
+          className="rounded-lg border border-neutral-300 px-3 py-2 text-sm transition-colors hover:bg-neutral-500/10 dark:border-neutral-700"
+        >
+          Back to dashboard
+        </Link>
+      </header>
+
+      {/* ----------------------------------------------------------- filters */}
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          void reload();
+        }}
+        className="flex flex-wrap items-end gap-3 rounded-xl border border-neutral-200 p-3 dark:border-neutral-800"
+      >
+        <label className="flex min-w-[12rem] flex-1 flex-col gap-1 text-xs text-neutral-500">
+          Search
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder={isDriver ? 'Name, address or city' : 'Name, code or address'}
+            className="rounded-lg border border-neutral-300 bg-transparent px-2.5 py-1.5 text-sm dark:border-neutral-700"
+          />
+        </label>
+
+        <label className="flex flex-col gap-1 text-xs text-neutral-500">
+          City
+          <input
+            value={city}
+            onChange={(event) => setCity(event.target.value)}
+            placeholder="Exact city"
+            className="w-36 rounded-lg border border-neutral-300 bg-transparent px-2.5 py-1.5 text-sm dark:border-neutral-700"
+          />
+        </label>
+
+        {/* Drivers get no status filter: the endpoint serves active stations only, and
+            offering the control would imply they could ask for something else. */}
+        {!isDriver && (
+          <label className="flex flex-col gap-1 text-xs text-neutral-500">
+            Status
+            <select
+              value={status}
+              onChange={(event) => setStatus(event.target.value as StationStatus | '')}
+              className="rounded-lg border border-neutral-300 bg-transparent px-2.5 py-1.5 text-sm dark:border-neutral-700"
+            >
+              {STATUS_OPTIONS.map((option) => (
+                <option key={option || 'any'} value={option}>
+                  {option || 'Any status'}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        <button
+          type="submit"
+          className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm transition-colors hover:bg-neutral-500/10 dark:border-neutral-700"
+        >
+          Apply
+        </button>
+      </form>
+
+      {state.status === 'error' && (
+        <div className="rounded-lg border border-red-300 bg-red-500/5 p-4 text-sm text-red-700 dark:border-red-900 dark:text-red-400">
+          <p>{toMessage(state.error)}</p>
+          <button
+            type="button"
+            onClick={() => void reload()}
+            className="mt-2 underline underline-offset-2"
+          >
+            Try again
+          </button>
+        </div>
+      )}
+
+      {state.status !== 'error' && (
+        <>
+          {/* A count line that tells the truth about what is and is not on the map. */}
+          <p className="text-xs text-neutral-500">
+            {state.status === 'loading'
+              ? 'Loading stations…'
+              : `${stations.length} station${stations.length === 1 ? '' : 's'}` +
+                (placeableCount !== stations.length
+                  ? ` · ${stations.length - placeableCount} without coordinates, listed but not mapped`
+                  : '')}
+          </p>
+
+          {/*
+            * RESPONSIVE: below `lg` the map sits on top at a fixed height with the list
+            * beneath it — the prompt's "map first". At `lg` and above they become two
+            * columns with the list scrolling independently.
+            */}
+          <div className="grid gap-4 lg:h-[34rem] lg:grid-cols-[22rem_1fr]">
+            <section className="order-2 overflow-hidden rounded-xl border border-neutral-200 lg:order-1 lg:flex lg:flex-col dark:border-neutral-800">
+              <button
+                type="button"
+                onClick={() => setListOpenOnMobile((open) => !open)}
+                className="flex w-full items-center justify-between border-b border-neutral-200 px-4 py-2.5 text-left text-sm font-semibold lg:cursor-default dark:border-neutral-800"
+              >
+                Stations
+                <span className="text-xs font-normal text-neutral-500 lg:hidden">
+                  {listOpenOnMobile ? 'Hide' : 'Show'}
+                </span>
+              </button>
+
+              <div
+                className={`${listOpenOnMobile ? 'block' : 'hidden'} max-h-[22rem] overflow-y-auto lg:block lg:max-h-none lg:flex-1`}
+              >
+                {state.status === 'loading' ? (
+                  <p className="p-4 text-sm text-neutral-500">Loading&hellip;</p>
+                ) : (
+                  <StationList
+                    stations={stations}
+                    selectedId={selectedId}
+                    onSelect={handleSelect}
+                    emptyMessage={
+                      search || city || status
+                        ? 'No stations match those filters.'
+                        : isDriver
+                          ? 'No charging stations are available yet.'
+                          : 'Your company has no stations yet.'
+                    }
+                  />
+                )}
+              </div>
+            </section>
+
+            <section className="order-1 h-[20rem] overflow-hidden rounded-xl border border-neutral-200 lg:order-2 lg:h-auto dark:border-neutral-800">
+              {placeableCount === 0 && state.status === 'ok' ? (
+                <div className="flex h-full items-center justify-center bg-neutral-100 p-6 dark:bg-neutral-900">
+                  <p className="max-w-xs text-center text-sm text-neutral-500">
+                    {stations.length === 0
+                      ? 'Nothing to plot yet. Stations will appear here once they exist.'
+                      : 'None of these stations has usable coordinates, so there is nothing to plot.'}
+                  </p>
+                </div>
+              ) : (
+                <StationMap
+                  stations={stations}
+                  selectedId={selectedId}
+                  onSelect={handleSelect}
+                />
+              )}
+            </section>
+          </div>
+
+          {/* --------------------------------------------------------- detail */}
+          {selected && (
+            <section className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-semibold">{selected.name}</h2>
+                  <p className="text-sm text-neutral-500">
+                    {selected.address}, {selected.city}, {selected.state}
+                  </p>
+                </div>
+
+                {/*
+                  * Staff can open the full administrative record. A driver has no such page,
+                  * and `isStaffMapStation` is what keeps this branch off their screen — the
+                  * driver payload has no `stationCode`, so this could not compile otherwise.
+                  */}
+                {isStaffMapStation(selected) && (
+                  <Link
+                    href={`/stations/${selected.id}`}
+                    className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm transition-colors hover:bg-neutral-500/10 dark:border-neutral-700"
+                  >
+                    Open station
+                  </Link>
+                )}
+              </div>
+
+              <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+                <div>
+                  <dt className="text-xs text-neutral-500">Status</dt>
+                  <dd className="font-medium">{selected.status}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-neutral-500">Connectors available</dt>
+                  <dd className="font-medium">
+                    {selected.totalConnectors === 0
+                      ? 'None installed'
+                      : `${selected.availableConnectors} of ${selected.totalConnectors}`}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-neutral-500">Chargers</dt>
+                  <dd className="font-medium">
+                    {selected.chargers}
+                    {selected.chargers > 0 && (
+                      <span className="ml-1 text-xs font-normal text-neutral-500">
+                        ({selected.chargersOnline} online)
+                      </span>
+                    )}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-neutral-500">Coordinates</dt>
+                  <dd className="font-medium tabular-nums">
+                    {hasUsableCoordinates(selected)
+                      ? `${selected.latitude.toFixed(4)}, ${selected.longitude.toFixed(4)}`
+                      : 'Not set'}
+                  </dd>
+                </div>
+              </dl>
+
+              {isStaffMapStation(selected) && (
+                <p className="mt-3 text-xs text-neutral-500">Code: {selected.stationCode}</p>
+              )}
+            </section>
+          )}
+        </>
+      )}
+    </main>
+  );
+}
+
+export default function MapPage() {
+  /*
+   * All four roles. The only page in the project with no role restriction at all — which is
+   * correct, because "where can I charge?" is a question every user of a charging platform
+   * has, and the backend decides what each of them actually receives.
+   */
+  return (
+    <RequireAuth>
+      <StationMapPage />
+    </RequireAuth>
+  );
+}

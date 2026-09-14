@@ -1,5 +1,13 @@
 import { apiRequest } from './apiClient';
-import type { Paginated, Station, StationPayload, StationStatus } from '@/types/api';
+import type {
+  MapStation,
+  MapStationsPayload,
+  Paginated,
+  PublicMapStation,
+  Station,
+  StationPayload,
+  StationStatus,
+} from '@/types/api';
 
 export interface StationInput {
   name: string;
@@ -80,4 +88,53 @@ export async function setStationStatus(
     body: { status },
   });
   return station;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Module 14 — map reads                                                      */
+/* -------------------------------------------------------------------------- */
+
+export interface MapStationsParams {
+  search?: string;
+  city?: string;
+  status?: StationStatus;
+  /** super_admin only, and only on the staff map. */
+  companyId?: string;
+  limit?: number;
+}
+
+function mapQuery(params: MapStationsParams): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== '') search.set(key, String(value));
+  }
+  return search.toString() ? `?${search}` : '';
+}
+
+/**
+ * Staff markers — company-scoped by the backend.
+ *
+ * Which of these two functions the UI calls is decided by role, but that is a CONVENIENCE,
+ * not the boundary: a driver calling this one gets 403 from the server.
+ */
+export function getMapStations(
+  params: MapStationsParams = {},
+): Promise<MapStationsPayload<MapStation>> {
+  return apiRequest<MapStationsPayload<MapStation>>(`/stations/map${mapQuery(params)}`, {
+    cache: 'no-store',
+  });
+}
+
+/**
+ * Driver discovery — active stations of active companies, across every company.
+ *
+ * No `status` and no `companyId` parameter exist here, matching the backend: the endpoint
+ * serves active stations only, and never reveals which company owns one.
+ */
+export function getPublicStations(
+  params: Pick<MapStationsParams, 'search' | 'city' | 'limit'> = {},
+): Promise<MapStationsPayload<PublicMapStation>> {
+  return apiRequest<MapStationsPayload<PublicMapStation>>(`/stations/public${mapQuery(params)}`, {
+    cache: 'no-store',
+  });
 }

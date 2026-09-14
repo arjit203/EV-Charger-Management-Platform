@@ -21,3 +21,16 @@ export type StationStatus = (typeof STATION_STATUSES)[number];
 
 /** Statuses a company-scoped admin may set on their own stations. */
 export const CPO_SETTABLE_STATION_STATUSES: StationStatus[] = ['active', 'inactive'];
+
+/**
+ * MODULE 14 — how many markers one map request may return.
+ *
+ * A map has no "next page": you cannot show half a map, so the honest bound is a cap plus a
+ * `truncated` flag rather than pagination that would silently hide a site the caller is
+ * standing next to. Never reached at this project's scale — it exists so that one request
+ * cannot ask the database for every station on earth.
+ *
+ * Lives here rather than in the map service so the validator and the service can share it
+ * without importing each other.
+ */
+export const MAX_MAP_STATIONS = 500;

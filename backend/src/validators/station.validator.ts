@@ -9,7 +9,7 @@
 
 import { z } from 'zod';
 
-import { STATION_STATUSES } from '../constants/station';
+import { MAX_MAP_STATIONS, STATION_STATUSES } from '../constants/station';
 
 const objectId = z
   .string()
@@ -94,3 +94,47 @@ export type CreateStationInput = z.infer<typeof createStationSchema>;
 export type UpdateStationInput = z.infer<typeof updateStationSchema>;
 export type StationStatusInput = z.infer<typeof stationStatusSchema>;
 export type ListStationsQuery = z.infer<typeof listStationsQuerySchema>;
+
+/* -------------------------------------------------------------------------- */
+/* Module 14 — map reads                                                      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Staff map query. Same filter vocabulary as the admin list, minus pagination.
+ *
+ * There is no `page`: a map has no next page. `limit` caps the marker set instead, and the
+ * response carries a `truncated` flag so a clipped view can say so rather than quietly
+ * pretend it is complete.
+ */
+export const mapStationsQuerySchema = z
+  .object({
+    status: z.enum(STATION_STATUSES).optional(),
+    city: z.string().trim().min(1).max(100).optional(),
+    search: z.string().trim().min(1).max(150).optional(),
+    /** super_admin only. A company-scoped caller naming another company gets 403. */
+    companyId: objectId.optional(),
+    limit: z.coerce.number().int().min(1).max(MAX_MAP_STATIONS).optional(),
+  })
+  .strict();
+
+/**
+ * Driver discovery query. DELIBERATELY NARROWER THAN THE STAFF ONE.
+ *
+ * No `status` — the endpoint serves active stations only, and offering the parameter would
+ * imply a driver can ask for inactive ones.
+ *
+ * No `companyId` — this is the project's one cross-company read, and the response shape
+ * exists precisely to remove company identity. A filter that takes a company id would hand
+ * back, through the query string, the very thing the payload strips. `.strict()` turns the
+ * attempt into a 400 rather than ignoring it.
+ */
+export const publicStationsQuerySchema = z
+  .object({
+    city: z.string().trim().min(1).max(100).optional(),
+    search: z.string().trim().min(1).max(150).optional(),
+    limit: z.coerce.number().int().min(1).max(MAX_MAP_STATIONS).optional(),
+  })
+  .strict();
+
+export type MapStationsQuery = z.infer<typeof mapStationsQuerySchema>;
+export type PublicStationsQuery = z.infer<typeof publicStationsQuerySchema>;
