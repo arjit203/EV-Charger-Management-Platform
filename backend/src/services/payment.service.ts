@@ -23,6 +23,13 @@ import {
 import {
   MAX_RECHARGE_PAISE,
   MIN_RECHARGE_PAISE,
+  ARREARS_GRACE_MS,
+  ARREARS_MAX_OUTSTANDING_PAISE,
+  ARREARS_MAX_UNPAID_SESSIONS,
+  SETTLEMENT_LOUD_ATTEMPTS,
+  SETTLEMENT_RETRY_BASE_MS,
+  SETTLEMENT_RETRY_MAX_MS,
+  SETTLEMENT_SWEEP_BATCH,
   SETTLEMENT_SWEEP_INTERVAL_MS,
 } from '../constants/wallet';
 import { ROLES } from '../constants/roles';
@@ -421,7 +428,7 @@ export async function settleSession(sessionId: string): Promise<SettlementResult
        */
       const claimed = await PaymentTransaction.findOneAndUpdate(
         { _id: payment!._id, status: 'pending' },
-        { $set: { status: 'paid', paidAt: new Date(), failureReason: null } },
+        { $set: { status: 'paid', paidAt: new Date(), failureReason: null, nextAttemptAt: null } },
         { returnDocument: 'after', session },
       );
 
@@ -447,13 +454,26 @@ export async function settleSession(sessionId: string): Promise<SettlementResult
 
   if (outcome.status === 'pending') {
     payment.attempts += 1;
+    payment.nextAttemptAt = new Date(Date.now() + retryDelayMs(payment.attempts));
     payment.failureReason = `Insufficient balance for ${formatPaise(amountPaise)}`;
     await payment.save();
 
-    logger.warn(
-      SCOPE,
-      `Session ${sessionId} unpaid: wallet short of ${formatPaise(amountPaise)} (attempt ${payment.attempts})`,
-    );
+    /*
+     * LOUD ONCE, THEN SILENT. A short wallet is an expected state of the world, not an
+     * incident. The first few attempts warn, because a session that will not collect is worth
+     * an operator's attention the first time. After that this says nothing at all, and the
+     * sweeper reports a single summary line for the whole batch instead.
+     *
+     * Per-session logging on every attempt is what produced thousands of identical lines and
+     * buried a real bug underneath them. A log nobody can read is not observability.
+     */
+    if (payment.attempts <= SETTLEMENT_LOUD_ATTEMPTS) {
+      logger.warn(
+        SCOPE,
+        `Session ${sessionId} unpaid: wallet short of ${formatPaise(amountPaise)} ` +
+          `(attempt ${payment.attempts}, next in ${Math.round(retryDelayMs(payment.attempts) / 1000)}s)`,
+      );
+    }
 
     /*
      * Told ONCE, not once per sweep. The settlement sweeper retries every 15 seconds for as long
@@ -473,6 +493,21 @@ export async function settleSession(sessionId: string): Promise<SettlementResult
 
 /** Signals "leave it pending" without rolling back the attempt bookkeeping. */
 class SettlementDeferred extends Error {}
+
+/**
+ * Exponential backoff, capped.
+ *
+ * 30s, 1m, 2m, 4m ... up to a 6-hour ceiling. The cap matters more than the curve: without it
+ * doubling would eventually push a retry years out, and a driver who tops up after a long gap
+ * would sit uncollected. Six hours means a stuck session is still checked four times a day,
+ * while the top-up path collects the instant money actually arrives.
+ */
+function retryDelayMs(attempts: number): number {
+  const exponent = Math.max(0, attempts - 1);
+  // Guard the shift itself: 2 ** 1024 is Infinity, and Infinity in a Date is an invalid date.
+  if (exponent > 40) return SETTLEMENT_RETRY_MAX_MS;
+  return Math.min(SETTLEMENT_RETRY_BASE_MS * 2 ** exponent, SETTLEMENT_RETRY_MAX_MS);
+}
 
 /** Settle everything this driver still owes. Called after a top-up. */
 export async function settleOutstandingForUser(userId: string): Promise<number> {
@@ -494,6 +529,78 @@ export async function settleOutstandingForUser(userId: string): Promise<number> 
   }
 
   return settled;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Arrears                                                                    */
+/* -------------------------------------------------------------------------- */
+
+export interface Arrears {
+  outstandingPaise: number;
+  unpaidSessions: number;
+  /** True when this driver should be refused a NEW charge until they settle up. */
+  blocked: boolean;
+  /** Driver-facing explanation. Null when not blocked. */
+  reason: string | null;
+}
+
+/**
+ * How much does this driver owe, and is it enough to stop them charging again?
+ *
+ * READ-ONLY AND CHEAP, because it sits directly in the start path — a driver waiting at a
+ * charger is waiting on this query. One indexed aggregation over their own unpaid sessions,
+ * no wallet read: the wallet balance is irrelevant here. Whether they CAN pay is settlement's
+ * question, asked after the charge. Whether they have NOT paid is this one, asked before it.
+ *
+ * Deliberately not a stored flag on the user. A denormalised `isBlocked` would need writing
+ * from every settle, every top-up and every refund, and any missed write strands a paying
+ * customer at a charger. Deriving it makes that class of bug impossible.
+ */
+export async function assessArrears(userId: string): Promise<Arrears> {
+  /*
+   * Only AGED debt counts. `endedAt` rather than `createdAt`, because the clock that matters
+   * starts when the driver stopped charging and the bill became real — not when they plugged
+   * in, which for a long charge could be hours earlier and would make a session count as
+   * overdue before it was even billable.
+   */
+  const cutoff = new Date(Date.now() - ARREARS_GRACE_MS);
+
+  const [summary] = await ChargingSession.aggregate<{ owed: number; count: number }>([
+    {
+      $match: {
+        userId: new Types.ObjectId(userId),
+        paymentStatus: 'unpaid',
+        amountPaise: { $gt: 0 },
+        endedAt: { $ne: null, $lt: cutoff },
+      },
+    },
+    { $group: { _id: null, owed: { $sum: '$amountPaise' }, count: { $sum: 1 } } },
+  ]);
+
+  const outstandingPaise = summary?.owed ?? 0;
+  const unpaidSessions = summary?.count ?? 0;
+
+  const overAmount = outstandingPaise > ARREARS_MAX_OUTSTANDING_PAISE;
+  const overCount = unpaidSessions > ARREARS_MAX_UNPAID_SESSIONS;
+
+  /*
+   * The message names the amount and the remedy. "Blocked" on its own at a charger, in the
+   * rain, is the worst possible version of this feature: the driver cannot tell whether it is
+   * their fault, and cannot tell what would fix it.
+   */
+  let reason: string | null = null;
+
+  if (overAmount) {
+    reason =
+      `You have ${formatPaise(outstandingPaise)} in unpaid charging sessions. ` +
+      'Top up your wallet to clear it and start charging again.';
+  } else if (overCount) {
+    reason =
+      `You have ${unpaidSessions} unpaid charging sessions (${formatPaise(outstandingPaise)}). ` +
+      'Top up your wallet to clear them and start charging again.';
+  }
+
+  return { outstandingPaise, unpaidSessions, blocked: overAmount || overCount, reason };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -530,19 +637,84 @@ export function stopSettlementSweeper(): void {
   sweepTimer = null;
 }
 
-export async function sweepUnsettledSessions(limit = 25): Promise<number> {
-  const unpaid = await ChargingSession.find({
-    paymentStatus: 'unpaid',
-    amountPaise: { $gt: 0 },
-  })
-    .sort({ endedAt: 1 })
-    .limit(limit)
-    .select('_id');
+/**
+ * One pass of the safety net.
+ *
+ * Two DISTINCT populations, and the old version only really served the first:
+ *
+ *   1. RETRIES     — a payment row exists and is still pending. Picked up only when its
+ *                    backoff says it is due, soonest-due first.
+ *   2. ORPHANS     — an unpaid session with no payment row at all. This is the case the
+ *                    sweeper genuinely exists for: the process died between pricing the
+ *                    session and collecting for it, so nobody has ever tried.
+ *
+ * The previous query was `unpaid sessions, oldest first, limit 25`, which conflated the two
+ * and let population 1 starve population 2 — 25 permanently unpayable sessions from the top of
+ * the queue filled every batch, so an orphan created later was never reached. Orphans are
+ * therefore taken FIRST here, and they can never block anything, because attempting one always
+ * creates a payment row and moves it into population 1.
+ */
+export async function sweepUnsettledSessions(limit = SETTLEMENT_SWEEP_BATCH): Promise<number> {
+  const now = new Date();
+  const sessionIds: string[] = [];
+
+  /*
+   * Sessions with no payment row. `$lookup` rather than a `$nin` over every pending payment,
+   * so the query does not grow an unbounded argument list as the table fills.
+   */
+  const orphans = await ChargingSession.aggregate<{ _id: Types.ObjectId }>([
+    { $match: { paymentStatus: 'unpaid', amountPaise: { $gt: 0 } } },
+    {
+      $lookup: {
+        from: PaymentTransaction.collection.name,
+        localField: '_id',
+        foreignField: 'chargingSessionId',
+        as: 'payments',
+      },
+    },
+    { $match: { payments: { $eq: [] } } },
+    { $sort: { endedAt: 1 } },
+    { $limit: limit },
+    { $project: { _id: 1 } },
+  ]);
+
+  for (const orphan of orphans) sessionIds.push(String(orphan._id));
+
+  // Whatever budget the orphans left goes to retries that are actually due.
+  const remaining = limit - sessionIds.length;
+
+  if (remaining > 0) {
+    const due = await PaymentTransaction.find({
+      purpose: 'session_debit',
+      status: 'pending',
+      chargingSessionId: { $ne: null },
+      $or: [{ nextAttemptAt: null }, { nextAttemptAt: { $lte: now } }],
+    })
+      .sort({ nextAttemptAt: 1 })
+      .limit(remaining)
+      .select('chargingSessionId');
+
+    for (const payment of due) {
+      if (payment.chargingSessionId) sessionIds.push(String(payment.chargingSessionId));
+    }
+  }
 
   let settled = 0;
-  for (const charging of unpaid) {
-    const result = await settleSession(String(charging._id));
+  for (const id of sessionIds) {
+    const result = await settleSession(id);
     if (result.status === 'paid') settled += 1;
+  }
+
+  /*
+   * ONE LINE PER SWEEP, and only when the sweep did something. A quiet system should produce a
+   * quiet log: the overwhelmingly common case is "nothing was due", and saying so every 15
+   * seconds is how a log stops being read at all.
+   */
+  if (sessionIds.length > 0) {
+    logger.info(
+      SCOPE,
+      `Settlement sweep: ${sessionIds.length} due, ${settled} settled, ${sessionIds.length - settled} still short`,
+    );
   }
 
   return settled;

@@ -42,6 +42,17 @@ function ChargerRow({ charger }: { charger: Charger }) {
         </p>
       </div>
       <div className="flex items-center gap-2">
+        {/*
+          The machine's own report comes FIRST, and only when it is bad. A charger that has
+          announced a fault about itself is the single most important thing in this row — more
+          than the admin status beside it, which may still say "available" and be quite wrong.
+        */}
+        {charger.hardwareStatus !== 'operative' && (
+          <StatusBadge
+            tone="bad"
+            label={charger.hardwareStatus === 'faulted' ? 'hardware fault' : 'self-disabled'}
+          />
+        )}
         <StatusBadge tone={charger.isOnline ? 'good' : 'neutral'} label={charger.isOnline ? 'online' : 'offline'} />
         <StatusBadge tone={chargerStatusTone(charger.status)} label={charger.status} />
       </div>

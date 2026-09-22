@@ -20,6 +20,7 @@ import {
   toPublicChargingSession,
   type ChargingSessionDocument,
 } from '../models/chargingSession.model';
+import { Connector } from '../models/connector.model';
 import { MeterReading } from '../models/meterReading.model';
 import {
   OPEN_SESSION_STATUSES,
@@ -30,7 +31,15 @@ import {
 import { logger } from '../utils/logger';
 import * as realtime from '../realtime/publisher';
 import * as notify from './notification.service';
-import { settleSession } from './payment.service';
+import { assessArrears, settleSession } from './payment.service';
+
+/**
+ * Connector states that only make sense while a charger is CONNECTED.
+ *
+ * If the charger vanishes, a plug cannot still be preparing, charging or finishing — there is
+ * nothing on the other end to be doing it.
+ */
+const IN_FLIGHT_CONNECTOR_STATUSES = ['preparing', 'charging', 'finishing'] as const;
 
 const SCOPE = 'session';
 
@@ -68,14 +77,37 @@ function parseChargerTime(value: unknown): Date {
  * check against. Now there is: a tag is valid only while a session is holding it open. That
  * turns Authorize from a formality into a real gate — a charger cannot start charging for a
  * credential no living session issued.
+ *
+ * MODULE 10 WIDENED THE ANSWER from a boolean to an OCPP status, because the protocol already
+ * distinguishes the two ways a tag can be refused and the charge point shows the driver a
+ * different message for each:
+ *
+ *   Invalid — we do not recognise this credential at all
+ *   Blocked — we recognise you, and we are refusing you (an unpaid balance)
+ *
+ * Collapsing both into "Invalid" would tell a driver in arrears that their card is broken.
+ * They would call support about the wrong problem.
  */
-export async function authorizeIdTag(idTag: string): Promise<boolean> {
+export type AuthorizeStatus = 'Accepted' | 'Invalid' | 'Blocked';
+
+export async function authorizeIdTag(idTag: string): Promise<AuthorizeStatus> {
   const session = await ChargingSession.findOne({
     idTag,
     status: { $in: OPEN_SESSION_STATUSES },
-  }).select('_id');
+  }).select('_id userId');
 
-  return Boolean(session);
+  if (!session) return 'Invalid';
+
+  /*
+   * DEFENCE IN DEPTH, and honest about being exactly that. `startSession` is the real gate:
+   * it refuses in-arrears drivers before a tag is ever minted, so in normal operation this
+   * check never fires. It is here because Authorize is the protocol-level answer to "may this
+   * credential draw power", and a gate that only exists in the HTTP layer is one RemoteStart
+   * away from being bypassed.
+   */
+  const arrears = await assessArrears(String(session.userId));
+
+  return arrears.blocked ? 'Blocked' : 'Accepted';
 }
 
 /* -------------------------------------------------------------------------- */
@@ -337,26 +369,17 @@ export async function onStopTransaction(
 /* -------------------------------------------------------------------------- */
 
 /**
- * Close out every open session on a charger that has gone away.
- *
- * Called from the gateway's `close` handler and from its heartbeat sweep. Without this a
- * charger that loses signal mid-charge leaves a session `active` forever: the connector stays
- * reserved by the partial unique index, and the driver can never start another one.
+ * End a batch of open sessions with one reason. The shared body of the three callers below.
  *
  * The energy is NOT discarded. `energyConsumedWh` already holds everything up to the last
  * reading that arrived, so the driver is charged for power they actually received, and the
  * record says plainly why it ended without a proper StopTransaction.
  */
-export async function failOpenSessionsForCharger(
-  chargerId: string,
+async function failSessions(
+  open: ChargingSessionDocument[],
   stopReason: StopReason,
   failureReason: string,
-): Promise<number> {
-  const open = await ChargingSession.find({
-    chargerId,
-    status: { $in: OPEN_SESSION_STATUSES },
-  });
-
+): Promise<void> {
   for (const session of open) {
     session.status = 'failed';
     session.endedAt = new Date();
@@ -376,6 +399,93 @@ export async function failOpenSessionsForCharger(
     // "charging" screen until they refresh.
     realtime.emitSessionStatus(toPublicChargingSession(session));
     void notify.sessionFailed(session);
+  }
+}
+
+/**
+ * Close out the open session on ONE plug that just reported a fault.
+ *
+ * THE GAP THIS CLOSES. A `StatusNotification` of `Faulted` used to write the connector and
+ * stop there, so a plug that failed mid-charge left its session `active` forever: the driver's
+ * screen kept animating, the meter never moved again, and the partial unique index kept the
+ * connector reserved. The session only died if the charger went on to disconnect — which a
+ * charger with one bad plug has no reason to do.
+ *
+ * Deliberately NARROWER than `failOpenSessionsForCharger`. One faulted plug says nothing about
+ * the plug beside it, and a two-gun charger routinely has one working and one dead. Only the
+ * session on THIS connector ends; the other keeps charging.
+ *
+ * The connector's own status is NOT touched here — the charger already told us it is `faulted`
+ * and that write happened in the handler. Overwriting the hardware's own report with a guess is
+ * exactly what Module 16 learned not to do.
+ */
+export async function failOpenSessionsForConnector(
+  connectorId: string,
+  stopReason: StopReason,
+  failureReason: string,
+): Promise<number> {
+  const open = await ChargingSession.find({
+    connectorId,
+    status: { $in: OPEN_SESSION_STATUSES },
+  });
+
+  await failSessions(open, stopReason, failureReason);
+
+  return open.length;
+}
+
+/**
+ * Close out every open session on a charger that has gone away, or that has failed as a whole.
+ *
+ * Called from the gateway's `close` handler, from its heartbeat sweep, and from a
+ * charge-point-level fault (OCPP connectorId 0). Without this a charger that loses signal
+ * mid-charge leaves a session `active` forever: the connector stays reserved by the partial
+ * unique index, and the driver can never start another one.
+ */
+export async function failOpenSessionsForCharger(
+  chargerId: string,
+  stopReason: StopReason,
+  failureReason: string,
+): Promise<number> {
+  const open = await ChargingSession.find({
+    chargerId,
+    status: { $in: OPEN_SESSION_STATUSES },
+  });
+
+  await failSessions(open, stopReason, failureReason);
+
+  /*
+   * MODULE 16 — release the connectors this charger left mid-flight.
+   *
+   * THE BUG THIS FIXES. Failing the session was never enough: the CONNECTOR kept whatever
+   * state its last StatusNotification set, so a charger yanked mid-charge left a plug
+   * reading `charging` indefinitely. Nothing was charging. The lie then propagated
+   * everywhere that reads connector status — /monitor showed a live charge, Module 13's
+   * connector breakdown counted it busy, and Module 14's map reported the plug occupied.
+   *
+   * `unavailable`, not `available`, is the honest landing state. The charger is gone — or, in
+   * the caller added later, has reported itself faulted — so we genuinely do not know whether
+   * that plug is free, and claiming it is would send a driver to a socket that may be blocked.
+   * `unavailable` says exactly what is true: it cannot be used right now.
+   *
+   * Only IN-FLIGHT states are touched. A connector already `available`, `occupied` or
+   * `faulted` is not made worse by the charger leaving, and rewriting those would destroy
+   * information the charger reported before it went.
+   *
+   * Self-healing: the first StatusNotification after a reconnect overwrites this with the
+   * charger's own truth, which is the only authority on a plug's real state.
+   */
+  const released = await Connector.updateMany(
+    { chargerId, status: { $in: IN_FLIGHT_CONNECTOR_STATUSES } },
+    { $set: { status: 'unavailable' } },
+  );
+
+  if (released.modifiedCount > 0) {
+    logger.warn(
+      SCOPE,
+      `Released ${released.modifiedCount} connector(s) on charger ${chargerId} to unavailable ` +
+        `after disconnect — their charger is gone, so their state was no longer knowable.`,
+    );
   }
 
   return open.length;

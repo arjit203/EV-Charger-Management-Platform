@@ -50,6 +50,13 @@ export interface IPaymentTransaction {
 
   /** How many times settlement has been attempted. Only meaningful for a session debit. */
   attempts: number;
+  /**
+   * Earliest time the SWEEPER may retry this. Null means "never attempted, take it now".
+   *
+   * Only the blind sweeper honours this. A top-up is real new information about the wallet, so
+   * `settleOutstandingForUser` collects immediately and ignores it.
+   */
+  nextAttemptAt: Date | null;
   failureReason: string | null;
   paidAt: Date | null;
 
@@ -83,6 +90,7 @@ const paymentTransactionSchema = new Schema<IPaymentTransaction, PaymentTransact
     providerPaymentId: { type: String, default: null },
 
     attempts: { type: Number, required: true, default: 0, min: 0 },
+    nextAttemptAt: { type: Date, default: null },
     failureReason: { type: String, maxlength: 200, default: null },
     paidAt: { type: Date, default: null },
   },
@@ -152,8 +160,14 @@ paymentTransactionSchema.index({ userId: 1, createdAt: -1 });
 /** The staff view: collections at this company's stations. */
 paymentTransactionSchema.index({ companyId: 1, createdAt: -1 });
 
-/** The settlement sweeper's query: unpaid session debits, oldest first. */
-paymentTransactionSchema.index({ purpose: 1, status: 1, updatedAt: 1 });
+/**
+ * The settlement sweeper's query: session debits still pending, soonest-due first.
+ *
+ * `nextAttemptAt` leads the sort because the sweeper asks "what is due?", not "what is
+ * oldest?". Sorting by age is what let a handful of permanently unpayable sessions sit at the
+ * head of the queue and starve every newer one.
+ */
+paymentTransactionSchema.index({ purpose: 1, status: 1, nextAttemptAt: 1 });
 
 /**
  * MODULE 13 - the revenue query, exactly.

@@ -91,8 +91,23 @@ export type ConnectorStatus =
 export const CHARGER_STATUS_LABELS: Record<ChargerStatus, string> = {
   available: 'Available — in service',
   unavailable: 'Unavailable — out of service',
-  faulted: 'Faulted — hardware fault reported',
+  faulted: 'Faulted — a person recorded a fault',
   maintenance: 'Maintenance — planned servicing',
+};
+
+/**
+ * What the MACHINE says about itself, reported over OCPP on connectorId 0 — which addresses
+ * the charge point as a whole rather than any one plug.
+ *
+ * Separate from `ChargerStatus` above, which is what a PERSON decided. They disagree often and
+ * usefully: a charger can be administratively available and still be reporting a ground fault.
+ */
+export type ChargerHardwareStatus = 'operative' | 'faulted' | 'unavailable';
+
+export const CHARGER_HARDWARE_STATUS_LABELS: Record<ChargerHardwareStatus, string> = {
+  operative: 'Reporting healthy',
+  faulted: 'Reporting a fault',
+  unavailable: 'Out of service (self-reported)',
 };
 
 export const CONNECTOR_STATUS_LABELS: Record<ConnectorStatus, string> = {
@@ -125,6 +140,14 @@ export interface Charger {
    */
   isOnline: boolean;
   lastHeartbeatAt: string | null;
+  /**
+   * SELF-REPORTED HEALTH, also gateway-only. The fourth axis: a charger can be online,
+   * administratively available, and still telling us it is broken.
+   */
+  hardwareStatus: ChargerHardwareStatus;
+  /** The OCPP error code behind a fault — `GroundFailure`, `OverTemperature`, and so on. */
+  faultCode: string | null;
+  faultReportedAt: string | null;
   createdBy: string;
   createdAt: string;
   updatedAt: string;
@@ -416,6 +439,9 @@ export interface ConnectorChargingView {
   chargerName: string;
   powerKw: number;
   isOnline: boolean;
+  /** The machine's own report. A plug can read `available` on a charger that is faulted. */
+  chargerHardwareStatus: ChargerHardwareStatus;
+  chargerFaultCode: string | null;
   stationName: string;
   stationAddress: string;
   /** Module 9 — integer paise per kWh, or null if the operator has published no price. */
@@ -644,9 +670,10 @@ export type NotificationType =
   | 'payment_pending'
   | 'wallet_recharged'
   | 'complaint_updated'
-  | 'complaint_created';
+  | 'complaint_created'
+  | 'charger_fault';
 
-export type NotificationReferenceType = 'charging_session' | 'complaint' | 'payment';
+export type NotificationReferenceType = 'charging_session' | 'complaint' | 'payment' | 'charger';
 
 /**
  * An in-app message for exactly one person.

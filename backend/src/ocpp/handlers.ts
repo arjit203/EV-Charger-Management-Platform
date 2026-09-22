@@ -13,6 +13,7 @@
 
 import { Charger } from '../models/charger.model';
 import { Connector } from '../models/connector.model';
+import { CHARGE_POINT_STATUS_MAP } from '../constants/charger';
 import type { ConnectorStatus } from '../constants/connector';
 import { logger } from '../utils/logger';
 import {
@@ -31,6 +32,7 @@ import {
   type ChargerConnection,
 } from './registry';
 import * as sessionEvents from '../services/sessionEvents.service';
+import * as notify from '../services/notification.service';
 import * as realtime from '../realtime/publisher';
 
 const SCOPE = 'ocpp';
@@ -45,6 +47,13 @@ export const HEARTBEAT_INTERVAL_SECONDS = 30;
  * and the plug is not free, which is what our model actually cares about. Preserving the
  * distinction would mean domain values with no consumer.
  */
+/**
+ * OCPP 1.6 addresses the CHARGE POINT ITSELF with connectorId 0. There is no plug 0 — it is
+ * how a machine reports something true of the whole box: ground failure, over-temperature, the
+ * power module dead. Routed to `Charger.hardwareStatus`, never to a connector.
+ */
+const CHARGE_POINT_CONNECTOR_ID = 0;
+
 const STATUS_MAP: Record<string, ConnectorStatus> = {
   Available: 'available',
   Preparing: 'preparing',
@@ -147,12 +156,18 @@ export async function handleHeartbeat(connection: ChargerConnection): Promise<Oc
 }
 
 /**
- * StatusNotification — reported PER CONNECTOR by the hardware.
+ * StatusNotification — the hardware reporting operational state.
  *
- * This writes to Connector.status and NEVER to Charger.status. Those are different concerns:
- * Charger.status is administrative (a human put this machine in maintenance), Charger.isOnline
- * is connectivity, and Connector.status is operational. Conflating them is the easiest way to
- * corrupt this model.
+ * TWO DESTINATIONS, chosen by `connectorId`, and getting this wrong is how a CPMS ends up
+ * offering drivers a charger that has already announced it is broken:
+ *
+ *   connectorId >= 1   a PLUG        ->  Connector.status
+ *   connectorId == 0   the MACHINE   ->  Charger.hardwareStatus
+ *
+ * Neither writes `Charger.status`. That field is administrative — what a human decided — and
+ * the machine has no standing to overwrite a person's decision. Connectivity lives in
+ * `isOnline`. Four fields, four owners; conflating them is the easiest way to corrupt this
+ * model.
  */
 export async function handleStatusNotification(
   connection: ChargerConnection,
@@ -161,6 +176,15 @@ export async function handleStatusNotification(
   const connectorNumber = requireNumber(payload, 'connectorId');
   const ocppStatus = requireString(payload, 'status');
 
+  // `NoError` is OCPP's way of saying "no error", so it is normalised to null here rather than
+  // stored as a fault code that reads like one.
+  const errorCode =
+    typeof payload.errorCode === 'string' && payload.errorCode !== 'NoError' ? payload.errorCode : null;
+
+  if (connectorNumber === CHARGE_POINT_CONNECTOR_ID) {
+    return handleChargePointStatus(connection, ocppStatus, errorCode);
+  }
+
   const mapped = STATUS_MAP[ocppStatus];
   if (!mapped) {
     throw new OcppError(OcppErrorCode.PROPERTY_CONSTRAINT_VIOLATION, `Unknown status "${ocppStatus}"`, {
@@ -168,42 +192,194 @@ export async function handleStatusNotification(
     });
   }
 
-  const errorCode = typeof payload.errorCode === 'string' ? payload.errorCode : null;
-
-  // Module 8 needs the connector's id and station to address the event, and updateOne does
-  // not return the document - so this became findOneAndUpdate. Same single round trip.
-  const connector = await Connector.findOneAndUpdate(
+  /*
+   * `before`, not `after`, and that one word carries real weight: the PREVIOUS status is what
+   * tells a fresh fault apart from a charger repeating itself. Real hardware re-sends its
+   * status on every reconnect and on a timer, and acting on each repeat would re-fail sessions
+   * that are already dead and re-notify staff who already know.
+   *
+   * The new state is not read back because it is not in doubt — this write just set it.
+   */
+  const previous = await Connector.findOneAndUpdate(
     { chargerId: connection.chargerId, connectorNumber },
-    { $set: { status: mapped, errorCode: errorCode === 'NoError' ? null : errorCode } },
-    { returnDocument: 'after' },
+    { $set: { status: mapped, errorCode } },
+    { returnDocument: 'before' },
   );
 
-  const result = { matchedCount: connector ? 1 : 0 };
-
-  if (connector) {
-    // AFTER the write, never before: the database is the truth and this is only delivery.
-    const charger = await Charger.findById(connection.chargerId).select('stationId');
-
-    realtime.emitConnectorStatus({
-      connectorId: String(connector._id),
-      chargerId: connection.chargerId,
-      stationId: charger ? String(charger.stationId) : '',
-      companyId: connection.companyId,
-      connectorNumber,
-      status: mapped,
-      errorCode: connector.errorCode ?? null,
-    });
-  }
-
-  if (result.matchedCount === 0) {
+  if (!previous) {
     // The charger reported a connector we have no record of. Not fatal — log it and accept,
     // because refusing would leave real hardware retrying forever over a data-entry gap.
     logger.warn(
       SCOPE,
       `StatusNotification for unknown connector ${connectorNumber} on ${connection.ocppId}`,
     );
-  } else {
-    logger.info(SCOPE, `StatusNotification ${connection.ocppId} connector ${connectorNumber}: ${ocppStatus}`);
+    return {};
+  }
+
+  logger.info(SCOPE, `StatusNotification ${connection.ocppId} connector ${connectorNumber}: ${ocppStatus}`);
+
+  // AFTER the write, never before: the database is the truth and this is only delivery.
+  const charger = await Charger.findById(connection.chargerId).select('stationId name chargerCode');
+
+  realtime.emitConnectorStatus({
+    connectorId: String(previous._id),
+    chargerId: connection.chargerId,
+    stationId: charger ? String(charger.stationId) : '',
+    companyId: connection.companyId,
+    connectorNumber,
+    status: mapped,
+    errorCode,
+  });
+
+  /*
+   * A PLUG THAT FAULTS MID-CHARGE MUST KILL ITS SESSION.
+   *
+   * Writing the connector was never enough. The session on it stayed `active` — the driver's
+   * screen kept animating over a meter that had stopped, and the partial unique index kept the
+   * connector reserved — until the charger happened to disconnect. A charger with one bad plug
+   * has no reason to disconnect, so in the case this is actually about, it never did.
+   *
+   * Scoped to this connector alone. The plug beside it may be charging perfectly well, and
+   * ending that session too would invent an outage the hardware never reported.
+   */
+  if (mapped === 'faulted' && previous.status !== 'faulted') {
+    const detectedAt = new Date();
+
+    const failed = await sessionEvents.failOpenSessionsForConnector(
+      String(previous._id),
+      'HardwareFault',
+      `Connector ${connectorNumber} reported a fault${errorCode ? ` (${errorCode})` : ''}.`,
+    );
+
+    logger.warn(
+      SCOPE,
+      `Connector ${connectorNumber} on ${connection.ocppId} faulted` +
+        `${errorCode ? ` (${errorCode})` : ''} — ${failed} session(s) ended`,
+    );
+
+    if (charger) {
+      // Fire-and-forget, like every other notification trigger: telling staff must never fail
+      // an OCPP message. The charger's report is already safely written.
+      void notify.chargerFault({
+        _id: connection.chargerId,
+        companyId: connection.companyId,
+        name: charger.name,
+        chargerCode: charger.chargerCode,
+        connectorNumber,
+        errorCode,
+        detectedAt,
+      });
+    }
+  }
+
+  return {};
+}
+
+/**
+ * StatusNotification with connectorId 0 — the machine talking about ITSELF.
+ *
+ * THIS IS THE CASE THE GATEWAY USED TO DROP. It looked connectorId 0 up as a connector, found
+ * nothing (plug numbers start at 1), logged "unknown connector 0" and answered OK. A charger
+ * could announce a ground fault and still be offered to drivers, every plug reading
+ * `available`, because nothing in the system had a field for "the box is broken".
+ *
+ * Writes `hardwareStatus`, NEVER `status`. An admin who marked this machine for maintenance
+ * still sees `maintenance`; the fault sits alongside it. Both are true, both are kept, and
+ * `assessStartability` refuses the charger if either one says no.
+ */
+async function handleChargePointStatus(
+  connection: ChargerConnection,
+  ocppStatus: string,
+  errorCode: string | null,
+): Promise<OcppPayload> {
+  const mapped = CHARGE_POINT_STATUS_MAP[ocppStatus];
+
+  if (!mapped) {
+    // `Charging`, `Preparing`, `Finishing` and friends describe a plug with a car attached and
+    // cannot be true of the machine as a whole. Logged and dropped rather than mapped onto
+    // something adjacent — a fiction in the database is worse than a gap in it. Not an
+    // OcppError: a CALLERROR would make a charger retry a message we will never accept.
+    logger.warn(
+      SCOPE,
+      `Ignoring charge-point-level status "${ocppStatus}" from ${connection.ocppId} — ` +
+        `only Available, Faulted and Unavailable describe the machine itself`,
+    );
+    return {};
+  }
+
+  const detectedAt = new Date();
+  const isFault = mapped !== 'operative';
+
+  /*
+   * THE FILTER IS THE TRANSITION DETECTOR. `hardwareStatus: { $ne: mapped }` means the write
+   * lands only when something actually changed, atomically, in one round trip — no
+   * read-then-compare race between two messages from a chatty charger. A null result means
+   * "no change", which is the common case and deserves no action at all.
+   *
+   * `faultReportedAt` therefore keeps the time the fault STARTED, not the time of the latest
+   * repeat — the number an engineer asking "how long has this been down?" actually needs.
+   */
+  const previous = await Charger.findOneAndUpdate(
+    { _id: connection.chargerId, hardwareStatus: { $ne: mapped } },
+    {
+      $set: {
+        hardwareStatus: mapped,
+        faultCode: isFault ? errorCode : null,
+        faultReportedAt: isFault ? detectedAt : null,
+      },
+    },
+    { returnDocument: 'before' },
+  );
+
+  if (!previous) {
+    logger.info(SCOPE, `StatusNotification ${connection.ocppId} charge point: ${ocppStatus} (unchanged)`);
+    return {};
+  }
+
+  logger.warn(
+    SCOPE,
+    `Charge point ${connection.ocppId} reported itself ${mapped}` +
+      `${errorCode ? ` (${errorCode})` : ''} — was ${previous.hardwareStatus}`,
+  );
+
+  realtime.emitChargerHardwareStatus({
+    chargerId: connection.chargerId,
+    stationId: String(previous.stationId),
+    companyId: connection.companyId,
+    ocppId: connection.ocppId,
+    hardwareStatus: mapped,
+    faultCode: isFault ? errorCode : null,
+  });
+
+  if (mapped === 'faulted') {
+    /*
+     * The whole machine is down, so EVERY session on it ends — the opposite scope to a single
+     * faulted plug, and correct for the same reason: match what the hardware actually said.
+     *
+     * `unavailable` deliberately does NOT do this. A charge point goes Unavailable in normal
+     * operation, typically after a ChangeAvailability, and ending a live charge over a planned
+     * withdrawal would cut power to a car that is charging perfectly well.
+     */
+    const failed = await sessionEvents.failOpenSessionsForCharger(
+      connection.chargerId,
+      'HardwareFault',
+      `The charger reported a hardware fault${errorCode ? ` (${errorCode})` : ''}.`,
+    );
+
+    if (failed > 0) {
+      logger.warn(SCOPE, `${failed} session(s) ended by the fault on ${connection.ocppId}`);
+    }
+
+    void notify.chargerFault({
+      _id: connection.chargerId,
+      companyId: connection.companyId,
+      name: previous.name,
+      chargerCode: previous.chargerCode,
+      // null means "the machine", not "a plug" — the notification wording depends on it.
+      connectorNumber: null,
+      errorCode,
+      detectedAt,
+    });
   }
 
   return {};
@@ -226,11 +402,13 @@ export async function handleAuthorize(
   payload: OcppPayload,
 ): Promise<OcppPayload> {
   const idTag = requireString(payload, 'idTag');
-  const isValid = await sessionEvents.authorizeIdTag(idTag);
+  const status = await sessionEvents.authorizeIdTag(idTag);
 
-  logger.info(SCOPE, `Authorize ${connection.ocppId} idTag=${idTag} -> ${isValid ? 'Accepted' : 'Invalid'}`);
+  logger.info(SCOPE, `Authorize ${connection.ocppId} idTag=${idTag} -> ${status}`);
 
-  return { idTagInfo: { status: isValid ? 'Accepted' : 'Invalid' } };
+  // Passed through verbatim. The decision belongs to the service; this handler's job is to
+  // put it on the wire in the shape OCPP 1.6 expects, not to reinterpret it.
+  return { idTagInfo: { status } };
 }
 
 /**

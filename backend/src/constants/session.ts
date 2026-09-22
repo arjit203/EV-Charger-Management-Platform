@@ -1,13 +1,14 @@
 /**
  * Charging session constants.
  *
- * THIS IS A FOURTH, SEPARATE STATE MACHINE. The project now has four status concepts and
- * none of them may be conflated:
+ * THIS IS A SEPARATE STATE MACHINE. The project now has five status concepts and none of
+ * them may be conflated:
  *
- *   Charger.status      administrative — a human marked this machine for maintenance
- *   Charger.isOnline    connectivity   — is the OCPP WebSocket up
- *   Connector.status    operational    — is THIS plug free / charging / faulted
- *   ChargingSession     transactional  — the lifecycle of one car's visit  <- this file
+ *   Charger.status          administrative — a human marked this machine for maintenance
+ *   Charger.isOnline        connectivity   — is the OCPP WebSocket up
+ *   Charger.hardwareStatus  self-reported  — what the MACHINE says about itself (connectorId 0)
+ *   Connector.status        operational    — is THIS plug free / charging / faulted
+ *   ChargingSession         transactional  — the lifecycle of one car's visit  <- this file
  *
  * Lifecycle:
  *
@@ -62,6 +63,7 @@ export const STOP_REASONS = [
   'ChargerDisconnected', // the charger vanished mid-session
   'StartTimeout', // never confirmed the start
   'Rejected', // the charger refused the start
+  'HardwareFault', // the charger or the plug reported a fault while energy was flowing
 ] as const;
 
 export type StopReason = (typeof STOP_REASONS)[number];

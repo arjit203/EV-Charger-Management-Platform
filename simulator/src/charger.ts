@@ -308,15 +308,70 @@ export class SimulatedCharger {
 
   /* -------------------------------------------------------------- plumbing */
 
-  private async sendStatus(status: ConnectorStatus): Promise<void> {
-    this.status = status;
+  /**
+   * `connectorId` defaults to this simulator's plug. Passing 0 addresses the CHARGE POINT
+   * ITSELF, which in OCPP 1.6 is how a machine reports something true of the whole box rather
+   * than of any one socket — and is a different message to the backend, not a variant of this
+   * one.
+   */
+  private async sendStatus(
+    status: ConnectorStatus,
+    options: { connectorId?: number; errorCode?: string } = {},
+  ): Promise<void> {
+    const connectorId = options.connectorId ?? config.connectorNumber;
+
+    // Only a message about THIS plug describes this plug. A charge-point-level message must
+    // not overwrite the connector state the simulator is tracking.
+    if (connectorId === config.connectorNumber) this.status = status;
+
     await this.call('StatusNotification', {
-      connectorId: config.connectorNumber,
+      connectorId,
       status,
-      errorCode: status === 'Faulted' ? 'OtherError' : 'NoError',
+      errorCode: options.errorCode ?? (status === 'Faulted' ? 'OtherError' : 'NoError'),
       timestamp: new Date().toISOString(),
     });
-    log(`StatusNotification: ${status}`);
+
+    log(`StatusNotification: ${status}${connectorId === 0 ? ' (charge point)' : ''}`);
+  }
+
+  /* ------------------------------------------------------------- faults -- */
+
+  /**
+   * THE PLUG BREAKS, THE MACHINE IS FINE.
+   *
+   * Note what this deliberately does NOT send: a StopTransaction. Hardware whose connector has
+   * just failed cannot always close its transaction cleanly — that is precisely why the
+   * backend has to end the session from the fault itself, and simulating a polite shutdown
+   * here would demonstrate a case that is never the problem.
+   */
+  async faultConnector(errorCode = 'ConnectorLockFailure'): Promise<void> {
+    this.cleanupTimer('meterTimer');
+    this.transactionId = null;
+
+    log(`raising a CONNECTOR fault (${errorCode}) on connector ${config.connectorNumber}`);
+    await this.sendStatus('Faulted', { errorCode });
+  }
+
+  /**
+   * THE MACHINE BREAKS, THE PLUGS ARE FINE.
+   *
+   * connectorId 0, and the reason this method exists: every connector still reports
+   * `Available`, so nothing about the plugs says anything is wrong. A CPMS that only listens
+   * per connector hears silence here and keeps sending drivers to a dead charger.
+   */
+  async faultChargePoint(errorCode = 'GroundFailure'): Promise<void> {
+    this.cleanupTimer('meterTimer');
+    this.transactionId = null;
+
+    log(`raising a CHARGE POINT fault (${errorCode}) — connectorId 0, plugs untouched`);
+    await this.sendStatus('Faulted', { connectorId: 0, errorCode });
+  }
+
+  /** The engineer has been and gone: report healthy at both levels. */
+  async clearFaults(): Promise<void> {
+    log('clearing faults at both levels');
+    await this.sendStatus('Available', { connectorId: 0 });
+    await this.sendStatus('Available');
   }
 
   private call(action: string, payload: Payload): Promise<Payload> {

@@ -272,6 +272,51 @@ export async function complaintCreated(complaint: ComplaintLike): Promise<void> 
   }));
 }
 
+/** Just enough of a charger to write about it, without importing Module 5's model. */
+export interface ChargerFaultLike {
+  _id: Types.ObjectId | string;
+  companyId: Types.ObjectId | string;
+  name: string;
+  chargerCode: string;
+  /** null for a charge-point-level fault (OCPP connectorId 0) — the MACHINE, not a plug. */
+  connectorNumber: number | null;
+  errorCode: string | null;
+  detectedAt: Date;
+}
+
+/**
+ * Hardware reported a fault — tell the people who can send an engineer.
+ *
+ * ONLY ON THE TRANSITION INTO A FAULT, never while one persists. Real chargers repeat their
+ * status on reconnect and on a timer; notifying on each repeat would bury the bell. The caller
+ * in `ocpp/handlers.ts` owns that decision because only it can see the previous value — this
+ * function is told "a fault just started", not "a fault exists".
+ *
+ * The dedupe key carries the detection SECOND, so a repaired-then-refaulted charger notifies
+ * again while a duplicated message does not. See `dedupeKeys.charger`.
+ */
+export async function chargerFault(charger: ChargerFaultLike): Promise<void> {
+  const target =
+    charger.connectorNumber === null
+      ? `Charger ${charger.chargerCode} (${charger.name})`
+      : `Connector ${charger.connectorNumber} on ${charger.chargerCode} (${charger.name})`;
+
+  const detail = charger.errorCode ? ` Reported: ${charger.errorCode}.` : '';
+
+  await notifyCompanyStaff(charger.companyId, (staffUserId) => ({
+    userId: staffUserId,
+    type: 'charger_fault',
+    title: charger.connectorNumber === null ? 'Charger fault' : 'Connector fault',
+    message: `${target} reported a fault and cannot be used.${detail}`,
+    referenceType: 'charger',
+    referenceId: charger._id,
+    dedupeKey: dedupeKeys.charger(
+      String(charger._id),
+      `fault:${charger.connectorNumber ?? 0}:${Math.floor(charger.detectedAt.getTime() / 1000)}`,
+    ),
+  }));
+}
+
 /**
  * A complaint changed status — tell the driver who filed it.
  *

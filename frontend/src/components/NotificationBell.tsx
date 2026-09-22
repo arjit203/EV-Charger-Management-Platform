@@ -33,6 +33,8 @@ function hrefFor(notification: AppNotification): string {
       return `/complaints/${notification.referenceId}`;
     case 'payment':
       return '/wallet';
+    case 'charger':
+      return `/chargers/${notification.referenceId}`;
     default:
       return '/notifications';
   }

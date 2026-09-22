@@ -128,11 +128,18 @@ export interface MapStationsResult<T> {
  *
  *   available = connectors whose status is 'available',
  *               on chargers whose status is 'available'
+ *               and whose hardwareStatus is 'operative'
  *
  * Charger `status` is in the gate because a charger marked for maintenance genuinely has
- * no usable plugs. `isOnline` is NOT in the gate: connectivity flips second to second, and
- * folding it in would make the number flicker while HIDING the more useful fact. It is
- * returned separately as `chargersOnline` so the UI can show both.
+ * no usable plugs, and `hardwareStatus` for the sharper version of the same thing: a machine
+ * that has reported a fault about ITSELF has no usable plugs either, however healthy each
+ * individual connector still claims to be. Leaving it out would send drivers to a charger the
+ * hardware had already written off.
+ *
+ * `isOnline` is NOT in the gate: connectivity flips second to second, and folding it in would
+ * make the number flicker while HIDING the more useful fact. It is returned separately as
+ * `chargersOnline` so the UI can show both. A fault is different in kind — it persists until
+ * someone fixes the machine, so it does not flicker.
  *
  * HONEST LIMIT: this is a database snapshot at request time, not a reservation. A driver
  * who sees "3 available" may arrive to find two. Closing that gap is a reservation system,
@@ -163,7 +170,15 @@ async function availabilityByStation(
         availableConnectors: {
           $sum: {
             $cond: [
-              { $eq: ['$status', 'available'] },
+              {
+                $and: [
+                  { $eq: ['$status', 'available'] },
+                  // `$ne` rather than `$eq: 'operative'` so a charger row written before this
+                  // field existed — where it is missing, not 'operative' — still counts.
+                  { $ne: ['$hardwareStatus', 'faulted'] },
+                  { $ne: ['$hardwareStatus', 'unavailable'] },
+                ],
+              },
               {
                 $size: {
                   $filter: {

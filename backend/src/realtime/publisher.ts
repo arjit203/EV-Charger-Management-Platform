@@ -22,15 +22,19 @@
  *
  *   connector:statusChanged        Connector.status            (operational — the plug)
  *   charger:connectivityChanged    Charger.isOnline            (connectivity — the socket)
+ *   charger:hardwareStatusChanged  Charger.hardwareStatus      (the machine's view of itself)
  *   session:statusChanged          ChargingSession.status      (the business transaction)
  *   session:meterUpdate            a stored MeterReading       (energy)
  *   notification:new               a stored Notification       (Module 12)
  *
- * `charger:statusChanged` is deliberately absent. Module 6's D2 put operational state on the
- * CONNECTOR and left the charger holding only connectivity; an event by that name would either
- * duplicate connector status or invent a field that does not exist. `session:started` and
- * `session:completed` are absent for the same reason `charger:faulted` is — they are values of
- * a status the payload already carries, not distinct occurrences. Every event has one owner.
+ * `charger:statusChanged` is still deliberately absent: `Charger.status` is administrative, it
+ * changes only when a human edits it, and the editor already has the response. What used to be
+ * absent WITH it — a charge-point-level fault — is now `charger:hardwareStatusChanged`, because
+ * it finally maps to a field that exists (`hardwareStatus`, added when the gateway learned to
+ * read OCPP's connectorId 0). The rule did not bend: an event still needs one owning field.
+ *
+ * `session:started` and `session:completed` remain absent — they are values of a status the
+ * payload already carries, not distinct occurrences. Every event has one owner.
  */
 
 import type { Server } from 'socket.io';
@@ -110,6 +114,32 @@ export interface ChargerConnectivityEvent {
  */
 export function emitChargerConnectivity(event: Omit<ChargerConnectivityEvent, 'at'>): void {
   publish(companyAudience(event.companyId), 'charger:connectivityChanged', {
+    ...event,
+    at: new Date().toISOString(),
+  });
+}
+
+export interface ChargerHardwareStatusEvent {
+  chargerId: string;
+  stationId: string;
+  companyId: string;
+  ocppId: string;
+  hardwareStatus: string;
+  faultCode: string | null;
+  at: string;
+}
+
+/**
+ * The MACHINE changed its mind about its own health — OCPP `StatusNotification` on connectorId
+ * 0, which addresses the charge point itself rather than any one plug.
+ *
+ * TRANSITIONS ONLY, like connectivity above: hardware repeats its status on reconnect and on a
+ * timer, and a dashboard learns nothing from "still faulted". Company-scoped — a driver never
+ * sees this; what a driver needs is the charger simply not being offered to them, which
+ * `assessStartability` already handles.
+ */
+export function emitChargerHardwareStatus(event: Omit<ChargerHardwareStatusEvent, 'at'>): void {
+  publish(companyAudience(event.companyId), 'charger:hardwareStatusChanged', {
     ...event,
     at: new Date().toISOString(),
   });

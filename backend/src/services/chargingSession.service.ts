@@ -44,6 +44,7 @@ import * as notify from './notification.service';
 import { sendRemoteStart, sendRemoteStop } from '../ocpp/commands';
 import * as registry from '../ocpp/registry';
 import { findActiveTariffForCompany } from './tariff.service';
+import { assessArrears } from './payment.service';
 import type { Paginated } from '../types/pagination';
 import type { AuthUser } from '../types/express';
 import type { StartSessionInput, ListSessionsQuery } from '../validators/session.validator';
@@ -117,6 +118,15 @@ export interface ConnectorChargingView {
   chargerName: string;
   powerKw: number;
   isOnline: boolean;
+  /**
+   * What the MACHINE says about itself, separate from the plug's own `status` above.
+   *
+   * Surfaced to the driver because the two disagree in exactly the case that matters: a plug
+   * reading `available` on a charge point reporting a fault. Showing only the plug would put a
+   * Start button under a machine that has already said it cannot charge anything.
+   */
+  chargerHardwareStatus: string;
+  chargerFaultCode: string | null;
   stationName: string;
   stationAddress: string;
   /**
@@ -156,13 +166,19 @@ export async function getConnectorForCharging(
   const station = await Station.findById(charger.stationId);
   if (!station) throw ApiError.notFound('Connector not found.');
 
-  const { canStart, reason } = assessStartability(connector.status, charger.status, charger.isOnline);
+  const { canStart, reason } = assessStartability(
+    connector.status,
+    charger.status,
+    charger.isOnline,
+    charger.hardwareStatus,
+    charger.faultCode,
+  );
 
   // At most one can match — the partial unique index guarantees it.
   const tariff = await findActiveTariffForCompany(charger.companyId);
 
   // No published price means no charging, so the verdict has to account for it as well as the
-  // three hardware states. Checked after them so a faulted plug reports the hardware fault,
+  // four hardware states. Checked after them so a faulted plug reports the hardware fault,
   // which is what a driver standing in front of it actually needs to hear.
   const priced = Boolean(tariff);
 
@@ -175,6 +191,8 @@ export async function getConnectorForCharging(
     chargerName: charger.name,
     powerKw: charger.powerKw,
     isOnline: charger.isOnline,
+    chargerHardwareStatus: charger.hardwareStatus,
+    chargerFaultCode: charger.faultCode ?? null,
     stationName: station.name,
     stationAddress: station.address,
     pricePerKwhPaise: tariff ? tariff.pricePerKwhPaise : null,
@@ -184,26 +202,47 @@ export async function getConnectorForCharging(
 }
 
 /**
- * The three independent reasons a plug cannot be used, checked in the order a driver would
+ * The four independent reasons a plug cannot be used, checked in the order a driver would
  * care about them.
  *
- * ALL THREE STATE MACHINES ARE CONSULTED, and that is the point. `Charger.status` is
+ * ALL FOUR STATE MACHINES ARE CONSULTED, and that is the point. `Charger.status` is
  * administrative (a human put this machine into maintenance), `Charger.isOnline` is
- * connectivity, and `Connector.status` is what the hardware last reported about this
- * particular plug. A charger can be administratively fine but unreachable, or reachable with a
- * faulted plug. One boolean could never have expressed that, which is why Modules 5 and 6 kept
- * them apart — this function is the first place all three are read together.
+ * connectivity, `Charger.hardwareStatus` is what the MACHINE says about itself, and
+ * `Connector.status` is what it last reported about this particular plug.
+ *
+ * Every combination is real. A charger can be administratively fine but unreachable; reachable
+ * with one faulted plug and one good one; or online, available and reporting a ground fault in
+ * its own power stage while both plugs still read `available` — the last of these is exactly
+ * the case that used to slip through, because the gateway had nowhere to put a fault the
+ * machine reported about ITSELF. One boolean could never have expressed any of it, which is
+ * why these four fields were kept apart, and this function is the only place all four are read
+ * together.
+ *
+ * ORDER IS THE MESSAGE. The hardware fault is checked before the plug, because "this charger
+ * has a fault" is more useful to someone standing in front of it than "this connector is
+ * available" — which would be true, and useless.
  */
 function assessStartability(
   connectorStatus: string,
   chargerStatus: string,
   isOnline: boolean,
+  hardwareStatus: string,
+  faultCode: string | null,
 ): { canStart: boolean; reason: string | null } {
   if (chargerStatus !== 'available') {
     return { canStart: false, reason: `This charger is ${chargerStatus}.` };
   }
   if (!isOnline) {
     return { canStart: false, reason: 'This charger is not currently connected.' };
+  }
+  if (hardwareStatus === 'faulted') {
+    return {
+      canStart: false,
+      reason: `This charger has reported a fault${faultCode ? ` (${faultCode})` : ''}.`,
+    };
+  }
+  if (hardwareStatus === 'unavailable') {
+    return { canStart: false, reason: 'This charger has taken itself out of service.' };
   }
   if (connectorStatus === 'faulted' || connectorStatus === 'unavailable') {
     return { canStart: false, reason: `This connector is ${connectorStatus}.` };
@@ -250,6 +289,8 @@ export async function startSession(
     connector.status,
     charger.status,
     charger.isOnline,
+    charger.hardwareStatus,
+    charger.faultCode,
   );
   if (!canStart) throw ApiError.conflict(reason ?? 'This connector cannot be used right now.');
 
@@ -283,6 +324,35 @@ export async function startSession(
       'Charging is unavailable at this station: its operator has not published a price.',
       { companyId: String(charger.companyId) },
     );
+  }
+
+  /*
+   * MODULE 10 PRECONDITION — no credit. Checked LAST of the preconditions, and that ordering
+   * is deliberate: "this connector is broken" and "this station has no price" are facts about
+   * the world, while this one is a fact about the driver. Telling somebody they owe money for
+   * a charger that was never going to work anyway is the wrong answer to the wrong question.
+   *
+   * WHY THE START PATH AND NOT THE STOP PATH. A session already running is never interrupted
+   * over money — cutting power to a car mid-charge to collect a debt is both hostile and
+   * pointless, since the energy already delivered is already owed. The gate belongs at the
+   * only moment where refusing costs nothing.
+   *
+   * SELF-CLEARING. A top-up runs `settleOutstandingForUser`, which pays the debt down, which
+   * drops this below the threshold. The driver is never stuck waiting for an operator.
+   */
+  const arrears = await assessArrears(actor.id);
+
+  if (arrears.blocked) {
+    logger.warn(
+      SCOPE,
+      `Start refused for user ${actor.id}: ${arrears.unpaidSessions} unpaid session(s), ` +
+        `${arrears.outstandingPaise} paise outstanding`,
+    );
+
+    throw ApiError.conflict(arrears.reason ?? 'Settle your outstanding balance to start charging.', {
+      outstandingPaise: arrears.outstandingPaise,
+      unpaidSessions: arrears.unpaidSessions,
+    });
   }
 
   const idTag = mintIdTag();

@@ -24,9 +24,36 @@ console.log(`  identity   : ${config.ocppId}`);
 console.log(`  gateway    : ${config.gatewayUrl}`);
 console.log(`  connector  : ${config.connectorNumber}`);
 console.log(`  meter tick : every ${config.meterIntervalSeconds}s`);
+console.log('  keys       : f = connector fault, m = machine fault, c = clear faults');
 console.log('');
 
 charger.start();
+
+/*
+ * FAULT INJECTION, typed at the terminal.
+ *
+ * The two faults are separate keys because they are separate scenarios, and the whole point is
+ * that a CPMS must tell them apart:
+ *
+ *   f   the PLUG faults        -> StatusNotification on connectorId 1, charger stays healthy
+ *   m   the MACHINE faults     -> StatusNotification on connectorId 0, plugs stay `Available`
+ *   c   an engineer fixed it   -> healthy again at both levels
+ *
+ * Line mode, not raw mode: raw mode would swallow Ctrl+C, and a simulator you cannot stop is
+ * worse than one that needs an Enter key.
+ */
+if (process.stdin.isTTY) {
+  process.stdin.setEncoding('utf8');
+
+  process.stdin.on('data', (chunk: string) => {
+    const key = chunk.trim().toLowerCase();
+
+    if (key === 'f') void charger.faultConnector();
+    else if (key === 'm') void charger.faultChargePoint();
+    else if (key === 'c') void charger.clearFaults();
+    else if (key.length > 0) console.log('  unknown key — f, m or c');
+  });
+}
 
 /** Stop cleanly so an in-flight transaction is closed rather than abandoned. */
 async function shutdown(signal: string): Promise<void> {

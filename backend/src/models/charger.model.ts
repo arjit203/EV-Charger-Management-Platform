@@ -11,7 +11,14 @@
 
 import { Schema, model, type HydratedDocument, type Model, type Types } from 'mongoose';
 
-import { CHARGER_STATUSES, CHARGER_TYPES, type ChargerStatus, type ChargerType } from '../constants/charger';
+import {
+  CHARGER_HARDWARE_STATUSES,
+  CHARGER_STATUSES,
+  CHARGER_TYPES,
+  type ChargerHardwareStatus,
+  type ChargerStatus,
+  type ChargerType,
+} from '../constants/charger';
 
 export interface ICharger {
   stationId: Types.ObjectId;
@@ -25,9 +32,12 @@ export interface ICharger {
   powerKw: number;
   firmwareVersion?: string;
   status: ChargerStatus;
-  /* --- Module 6: connectivity, written ONLY by the OCPP gateway --- */
+  /* --- Module 6: connectivity + self-reported health, written ONLY by the OCPP gateway --- */
   isOnline: boolean;
   lastHeartbeatAt: Date | null;
+  hardwareStatus: ChargerHardwareStatus;
+  faultCode: string | null;
+  faultReportedAt: Date | null;
   authTokenHash?: string;
   createdBy: Types.ObjectId;
   createdAt: Date;
@@ -90,17 +100,45 @@ const chargerSchema = new Schema<ICharger, ChargerModel>(
     status: { type: String, enum: CHARGER_STATUSES, required: true, default: 'available', index: true },
 
     /**
-     * MODULE 6 — connectivity, a DIFFERENT concern from `status` above.
+     * MODULE 6 — connectivity and self-reported health, DIFFERENT concerns from `status`.
      *
      *   status           administrative: a human says this machine is in maintenance
      *   isOnline         connectivity:   is the OCPP WebSocket currently up
+     *   hardwareStatus   self-reported:  what the MACHINE says about itself (connectorId 0)
      *   Connector.status operational:    is THIS plug free / charging / faulted
      *
-     * Three orthogonal things. These two are written only by the gateway; Module 5's admin
-     * CRUD cannot touch them, and the gateway never touches `status`.
+     * Four orthogonal things. These are written only by the gateway; Module 5's admin CRUD
+     * cannot touch them, and the gateway never touches `status`. A charger can be online,
+     * administratively available, and still reporting a fault — all three at once, which is
+     * precisely why they are not one field.
      */
     isOnline: { type: Boolean, required: true, default: false, index: true },
     lastHeartbeatAt: { type: Date, default: null },
+
+    /**
+     * What the charge point last said about ITSELF, via `StatusNotification` on connectorId 0.
+     *
+     * `operative` is the default because silence is not a fault: a charger that has never sent
+     * a charge-point-level status has not claimed to be broken, and defaulting to anything
+     * else would take every existing charger out of service on deploy.
+     */
+    hardwareStatus: {
+      type: String,
+      enum: CHARGER_HARDWARE_STATUSES,
+      required: true,
+      default: 'operative',
+      index: true,
+    },
+
+    /**
+     * The OCPP `errorCode` that came with the fault — `GroundFailure`, `OverTemperature`,
+     * `PowerMeterFailure` and so on. Kept because "faulted" alone does not tell an engineer
+     * whether to drive out with a fuse or a whole new power module.
+     */
+    faultCode: { type: String, trim: true, maxlength: 64, default: null },
+
+    /** When the fault was first reported. Cleared when the charger reports itself healthy. */
+    faultReportedAt: { type: Date, default: null },
 
     /**
      * bcrypt hash of the charger's connection token (Module 6).
@@ -142,6 +180,9 @@ export interface PublicCharger {
   status: ChargerStatus;
   isOnline: boolean;
   lastHeartbeatAt: string | null;
+  hardwareStatus: ChargerHardwareStatus;
+  faultCode: string | null;
+  faultReportedAt: string | null;
   createdBy: string;
   createdAt: string;
   updatedAt: string;
@@ -163,6 +204,9 @@ export function toPublicCharger(charger: ChargerDocument): PublicCharger {
     status: charger.status,
     isOnline: charger.isOnline,
     lastHeartbeatAt: charger.lastHeartbeatAt ? charger.lastHeartbeatAt.toISOString() : null,
+    hardwareStatus: charger.hardwareStatus,
+    faultCode: charger.faultCode ?? null,
+    faultReportedAt: charger.faultReportedAt ? charger.faultReportedAt.toISOString() : null,
     createdBy: String(charger.createdBy),
     createdAt: charger.createdAt.toISOString(),
     updatedAt: charger.updatedAt.toISOString(),

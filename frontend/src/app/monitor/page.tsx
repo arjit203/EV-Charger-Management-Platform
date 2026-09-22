@@ -24,7 +24,7 @@ import { useAsyncData } from '@/hooks/useAsyncData';
 import { toMessage } from '@/lib/formatApiError';
 import { listChargers } from '@/services/charger.service';
 import { listSessions } from '@/services/session.service';
-import type { ChargingSession, ConnectorStatus } from '@/types/api';
+import type { ChargerHardwareStatus, ChargingSession, ConnectorStatus } from '@/types/api';
 
 interface ConnectorStatusEvent {
   connectorId: string;
@@ -38,6 +38,13 @@ interface ConnectivityEvent {
   chargerId: string;
   isOnline: boolean;
   lastHeartbeatAt: string | null;
+}
+
+/** The machine's own report about itself — OCPP connectorId 0, not any one plug. */
+interface HardwareStatusEvent {
+  chargerId: string;
+  hardwareStatus: ChargerHardwareStatus;
+  faultCode: string | null;
 }
 
 interface MeterUpdateEvent {
@@ -99,6 +106,25 @@ function MonitorContent() {
       chargers: state.data.chargers.map((charger) =>
         charger.id === event.chargerId
           ? { ...charger, isOnline: event.isOnline, lastHeartbeatAt: event.lastHeartbeatAt }
+          : charger,
+      ),
+    });
+    setLastEventAt(new Date().toLocaleTimeString());
+  });
+
+  /*
+   * A CHARGE POINT FAULTING IS THE EVENT THIS PAGE MOST NEEDS AND USED TO MISS ENTIRELY.
+   * The gateway dropped connectorId 0 on the floor, so a machine could report itself broken
+   * and this dashboard would keep showing it online and available until someone refreshed.
+   */
+  useSocketEvent<HardwareStatusEvent>('charger:hardwareStatusChanged', (event) => {
+    if (state.status !== 'ok') return;
+
+    setData({
+      ...state.data,
+      chargers: state.data.chargers.map((charger) =>
+        charger.id === event.chargerId
+          ? { ...charger, hardwareStatus: event.hardwareStatus, faultCode: event.faultCode }
           : charger,
       ),
     });
@@ -202,6 +228,18 @@ function MonitorContent() {
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
+                    {charger.hardwareStatus !== 'operative' && (
+                      <StatusBadge
+                        tone="bad"
+                        label={
+                          charger.faultCode
+                            ? `fault: ${charger.faultCode}`
+                            : charger.hardwareStatus === 'faulted'
+                              ? 'hardware fault'
+                              : 'self-disabled'
+                        }
+                      />
+                    )}
                     <StatusBadge
                       tone={charger.isOnline ? 'good' : 'neutral'}
                       label={charger.isOnline ? 'online' : 'offline'}

@@ -131,6 +131,12 @@ function OcppSection({ charger, canCommand }: { charger: Charger; canCommand: bo
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {charger.hardwareStatus !== 'operative' && (
+            <StatusBadge
+              tone="bad"
+              label={charger.hardwareStatus === 'faulted' ? 'hardware fault' : 'self-disabled'}
+            />
+          )}
           <StatusBadge
             tone={charger.isOnline ? 'good' : 'neutral'}
             label={charger.isOnline ? 'online' : 'offline'}
@@ -144,6 +150,29 @@ function OcppSection({ charger, canCommand }: { charger: Charger; canCommand: bo
           </button>
         </div>
       </div>
+
+      {/*
+        THE FAULT THE MACHINE REPORTED ABOUT ITSELF — OCPP StatusNotification on connectorId 0.
+        Shown as a banner rather than a badge because it explains why every connector below is
+        refusing starts even while each one still reads `available`. The status dropdown above
+        is untouched by it: that field is the operator's, this one is the hardware's.
+      */}
+      {charger.hardwareStatus !== 'operative' && (
+        <div className="mt-4 rounded-lg bg-red-500/10 px-3 py-2">
+          <p className="text-xs font-medium text-red-800 dark:text-red-300">
+            {charger.hardwareStatus === 'faulted'
+              ? 'This charger reported a hardware fault.'
+              : 'This charger has taken itself out of service.'}
+            {charger.faultCode ? ` Error code: ${charger.faultCode}.` : ''}
+          </p>
+          <p className="mt-1 text-xs text-red-700/80 dark:text-red-300/70">
+            {charger.faultReportedAt
+              ? `Reported ${new Date(charger.faultReportedAt).toLocaleString()}. `
+              : ''}
+            No session can start on any connector until the charger reports itself healthy again.
+          </p>
+        </div>
+      )}
 
       {issuedToken ? (
         <div className="mt-4 rounded-lg bg-amber-500/10 px-3 py-2">

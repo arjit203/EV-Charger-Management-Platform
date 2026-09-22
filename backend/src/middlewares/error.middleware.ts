@@ -50,6 +50,27 @@ function translateKnownErrors(error: unknown): ApiError | null {
     return ApiError.badRequest('Malformed identifier in request.');
   }
 
+  /*
+   * MODULE 16 — a body that is not valid JSON.
+   *
+   * `express.json()` throws a SyntaxError tagged `entity.parse.failed`, and until now it fell
+   * through to the 500 branch. That was wrong twice over: a client sending `{bad` has made a
+   * CLIENT error, and classifying it as 5xx meant anyone could make the server log an
+   * internal-error stack trace at will — noise that hides real faults.
+   *
+   * The body-parser error already carries the correct status; honouring it is the fix, and
+   * the message is replaced so the response does not echo parser internals back to the caller.
+   */
+  const parseFailure = error as { type?: string; status?: number; statusCode?: number };
+  if (parseFailure.type === 'entity.parse.failed') {
+    return ApiError.badRequest('Request body is not valid JSON.');
+  }
+
+  /* Body larger than the configured limit — also the caller's problem, not ours. */
+  if (parseFailure.type === 'entity.too.large') {
+    return new ApiError(413, 'Request body is too large.', 'PAYLOAD_TOO_LARGE');
+  }
+
   return null;
 }
 
