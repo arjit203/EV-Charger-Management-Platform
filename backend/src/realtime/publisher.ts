@@ -40,6 +40,7 @@
 import type { Server } from 'socket.io';
 
 import { logger } from '../utils/logger';
+import { describeCompany, describeUser } from '../utils/logLabels';
 import { companyAudience, sessionAudience, userRoom } from './rooms';
 import type { PublicChargingSession } from '../models/chargingSession.model';
 
@@ -63,7 +64,7 @@ function publish(rooms: string[], event: string, payload: unknown): void {
   try {
     io.to(rooms).emit(event, payload);
   } catch (error) {
-    logger.error(SCOPE, `Failed to emit ${event}`, error);
+    logger.error(SCOPE, `Couldn't push live update "${event}" to browsers`, error);
   }
 }
 
@@ -232,9 +233,11 @@ export function disconnectCompany(companyId: string): void {
   try {
     const room = companyAudience(companyId)[0];
     io.in(room).disconnectSockets(true);
-    logger.info(SCOPE, `Disconnected live sockets for company ${companyId}`);
+    void describeCompany(companyId).then((name) =>
+      logger.info(SCOPE, `Cut off live updates for everyone at ${name} (company suspended)`),
+    );
   } catch (error) {
-    logger.error(SCOPE, `Failed to disconnect sockets for company ${companyId}`, error);
+    logger.error(SCOPE, `Couldn't cut off live updates for company ${companyId}`, error);
   }
 }
 
@@ -250,9 +253,11 @@ export function disconnectUser(userId: string): void {
 
   try {
     io.in(`user:${userId}`).disconnectSockets(true);
-    logger.info(SCOPE, `Disconnected live sockets for user ${userId}`);
+    void describeUser(userId).then((email) =>
+      logger.info(SCOPE, `Cut off live updates for ${email} (account deactivated)`),
+    );
   } catch (error) {
-    logger.error(SCOPE, `Failed to disconnect sockets for user ${userId}`, error);
+    logger.error(SCOPE, `Couldn't cut off live updates for user ${userId}`, error);
   }
 }
 
@@ -271,7 +276,7 @@ export function disconnectUserSockets(userId: string): void {
       if (data.user?.id === userId) socket.disconnect(true);
     }
   } catch (error) {
-    logger.error(SCOPE, `Failed to sweep sockets for user ${userId}`, error);
+    logger.error(SCOPE, `Couldn't close the remaining live-update connections for user ${userId}`, error);
   }
 }
 

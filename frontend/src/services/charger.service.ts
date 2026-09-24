@@ -30,6 +30,9 @@ export interface ListChargersParams {
   stationId?: string;
   status?: ChargerStatus;
   chargerType?: ChargerType;
+  /** Chargers with at least one plug of this standard. */
+  connectorType?: ConnectorType;
+  isOnline?: boolean;
   manufacturer?: string;
   companyId?: string;
   search?: string;
@@ -86,37 +89,7 @@ export async function setChargerStatus(chargerId: string, status: ChargerStatus)
   return charger;
 }
 
-/* --------------------------- OCPP commands (M6) --------------------------- */
-
-export interface CommandResult {
-  chargerId: string;
-  ocppId: string;
-  accepted: boolean;
-  response: Record<string, unknown>;
-}
-
-/**
- * Ask the backend to push a RemoteStartTransaction down the charger's WebSocket.
- *
- * This is the Module 6 test surface. Module 7 replaces it with the real driver-facing start,
- * which also creates a charging session and applies a tariff.
- */
-export async function remoteStart(
-  chargerId: string,
-  connectorNumber: number,
-  idTag: string,
-): Promise<CommandResult> {
-  return apiRequest<CommandResult>(`/chargers/${chargerId}/commands/remote-start`, {
-    method: 'POST',
-    body: { connectorNumber, idTag },
-  });
-}
-
-export async function remoteStop(chargerId: string): Promise<CommandResult> {
-  return apiRequest<CommandResult>(`/chargers/${chargerId}/commands/remote-stop`, {
-    method: 'POST',
-  });
-}
+/* ------------------------------ OCPP diagnostics ------------------------------ */
 
 /** Live connection state from the gateway registry. */
 export async function getChargerConnection(chargerId: string): Promise<ChargerConnection> {

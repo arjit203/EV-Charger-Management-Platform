@@ -15,6 +15,8 @@ import type { TariffStatus } from '../constants/tariff';
 import { ApiError } from '../utils/ApiError';
 import { applyCompanyScope, resolveCompanyScope } from '../utils/companyScope';
 import { logger } from '../utils/logger';
+import { describeCompany } from '../utils/logLabels';
+import { formatPaise } from '../utils/money';
 import type { Paginated } from '../types/pagination';
 import type { AuthUser } from '../types/express';
 import type { CreateTariffInput, ListTariffsQuery, UpdateTariffInput } from '../validators/tariff.validator';
@@ -86,7 +88,11 @@ export async function createTariff(actor: AuthUser, input: CreateTariffInput): P
     createdBy: new Types.ObjectId(actor.id),
   });
 
-  logger.info(SCOPE, `Tariff ${String(tariff._id)} created for company ${String(companyId)}`);
+  logger.info(
+    SCOPE,
+    `${actor.email} created tariff "${tariff.name}" (${formatPaise(tariff.pricePerKwhPaise)}/kWh, not active yet) ` +
+      `for ${await describeCompany(companyId)}`,
+  );
 
   return toPublicTariff(tariff);
 }
@@ -193,7 +199,11 @@ export async function setTariffStatus(
   const updated = await Tariff.findById(tariff._id);
   if (!updated) throw ApiError.notFound('Tariff not found.');
 
-  logger.info(SCOPE, `Tariff ${tariffId} is now the active tariff for its company`);
+  logger.info(
+    SCOPE,
+    `${actor.email} made tariff "${updated.name}" (${formatPaise(updated.pricePerKwhPaise)}/kWh) the active ` +
+      `price for ${await describeCompany(updated.companyId)} — new sessions will use it`,
+  );
 
   return toPublicTariff(updated);
 }

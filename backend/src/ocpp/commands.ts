@@ -82,7 +82,7 @@ export function sendCall(
 
     try {
       connection.socket.send(buildCall(uniqueId, action, payload));
-      logger.info(SCOPE, `${action} sent to ${connection.ocppId}`);
+      logger.info(SCOPE, `Sent ${action} command to charger ${connection.ocppId}`);
     } catch (error) {
       clearTimeout(timer);
       pending.delete(uniqueId);

@@ -10,9 +10,19 @@
  * WHAT IT DOES NOT DO: filter for security. The server decides what reaches this socket — a
  * cpo_admin is in their company's room and no other, so another company's charger can never
  * appear here regardless of what this component renders.
+ *
+ * FILTERS COME IN TWO KINDS, and the split is the point:
+ *
+ *   SCOPE   company, station          -> sent to the SERVER. They decide which data is loaded at
+ *                                        all, and they do not change while you watch.
+ *   STATE   health, AC/DC, search     -> applied HERE, in memory. Health changes second to
+ *                                        second: a charger that drops offline must jump into the
+ *                                        "Offline" view the instant its event arrives, without a
+ *                                        refetch. A server-side health filter would freeze the
+ *                                        view at load time — the opposite of a live page.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 
 import { RequireAuth } from '@/components/RequireAuth';
@@ -24,7 +34,15 @@ import { useAsyncData } from '@/hooks/useAsyncData';
 import { toMessage } from '@/lib/formatApiError';
 import { listChargers } from '@/services/charger.service';
 import { listSessions } from '@/services/session.service';
-import type { ChargerHardwareStatus, ChargingSession, ConnectorStatus } from '@/types/api';
+import { listStations } from '@/services/station.service';
+import { CompanyFilter, FILTER_SELECT_CLASS, PowerTypeFilter } from '@/components/filters';
+import type {
+  Charger,
+  ChargerHardwareStatus,
+  ChargerType,
+  ChargingSession,
+  ConnectorStatus,
+} from '@/types/api';
 
 interface ConnectorStatusEvent {
   connectorId: string;
@@ -62,16 +80,73 @@ interface MeterUpdateEvent {
  * not be two colours on two screens.
  */
 
+/**
+ * The views an operations room actually switches between. "Needs attention" first: the whole
+ * point of a live board is to surface the machines someone has to go and look at.
+ */
+type Health = 'all' | 'attention' | 'charging' | 'online' | 'offline' | 'faulted';
+
+const HEALTH_LABELS: Record<Health, string> = {
+  all: 'All',
+  attention: 'Needs attention',
+  charging: 'Charging',
+  online: 'Online',
+  offline: 'Offline',
+  faulted: 'Faulted',
+};
+
+const CHARGER_LIMIT = 100;
+
+// Stable empties, so the memoised views below do not recompute on every render while loading.
+const NO_CHARGERS: Charger[] = [];
+const NO_SESSIONS: ChargingSession[] = [];
+
+function isFaulted(charger: Charger): boolean {
+  return charger.hardwareStatus !== 'operative' || charger.status === 'faulted';
+}
+
+function matchesHealth(charger: Charger, health: Health, charging: Set<string>): boolean {
+  switch (health) {
+    case 'attention':
+      return !charger.isOnline || isFaulted(charger);
+    case 'charging':
+      return charging.has(charger.id);
+    case 'online':
+      return charger.isOnline;
+    case 'offline':
+      return !charger.isOnline;
+    case 'faulted':
+      return isFaulted(charger);
+    default:
+      return true;
+  }
+}
+
 function MonitorContent() {
   const { isConnected, reconnectCount } = useSocket();
 
-  const load = useCallback(
-    async () => ({
-      chargers: (await listChargers({ limit: 100 })).items,
-      sessions: (await listSessions({ active: true, limit: 50 })).items,
-    }),
-    [],
+  // SCOPE filters — sent to the server.
+  const [companyId, setCompanyId] = useState('');
+  const [stationId, setStationId] = useState('');
+  // STATE filters — applied in memory, so live events move chargers between views instantly.
+  const [health, setHealth] = useState<Health>('all');
+  const [powerType, setPowerType] = useState<ChargerType | ''>('');
+  const [search, setSearch] = useState('');
+
+  const loadStations = useCallback(
+    () => listStations({ limit: 100, companyId: companyId || undefined }),
+    [companyId],
   );
+  const { state: stationState } = useAsyncData(loadStations);
+
+  const load = useCallback(async () => {
+    const scope = { companyId: companyId || undefined, stationId: stationId || undefined };
+    const [chargerPage, sessionPage] = await Promise.all([
+      listChargers({ limit: CHARGER_LIMIT, ...scope }),
+      listSessions({ active: true, limit: 50, ...scope }),
+    ]);
+    return { chargers: chargerPage.items, chargerTotal: chargerPage.total, sessions: sessionPage.items };
+  }, [companyId, stationId]);
 
   const { state, reload, setData } = useAsyncData(load);
 
@@ -85,8 +160,8 @@ function MonitorContent() {
    * The mirror would have to be re-seeded on every reload, which means setState inside an
    * effect - a cascading render, and two copies that can disagree while the copy is pending.
    */
-  const chargers = state.status === 'ok' ? state.data.chargers : [];
-  const sessions = state.status === 'ok' ? state.data.sessions : [];
+  const chargers = state.status === 'ok' ? state.data.chargers : NO_CHARGERS;
+  const sessions = state.status === 'ok' ? state.data.sessions : NO_SESSIONS;
 
   /*
    * RECOVERY. Events sent while the browser was offline are gone — there is no replay. So on
@@ -138,6 +213,10 @@ function MonitorContent() {
 
   useSocketEvent<{ session: ChargingSession }>('session:statusChanged', ({ session }) => {
     if (state.status !== 'ok') return;
+    // The socket delivers everything in the viewer's rooms. A session outside the chosen
+    // company or station must not slip into a filtered board just because it started.
+    if (companyId && session.companyId !== companyId) return;
+    if (stationId && session.stationId !== stationId) return;
 
     const open = ['initiating', 'active', 'stopping'].includes(session.status);
     const without = state.data.sessions.filter((s) => s.id !== session.id);
@@ -168,7 +247,39 @@ function MonitorContent() {
     setLastEventAt(new Date().toLocaleTimeString());
   });
 
-  const liveConnectors = Object.values(connectors);
+  /* ------------------------------------------------ derived, never stored ------ */
+
+  const chargingIds = useMemo(() => new Set(sessions.map((s) => s.chargerId)), [sessions]);
+
+  // Power type and search narrow the set the health chips count over.
+  const narrowed = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return chargers.filter(
+      (charger) =>
+        (!powerType || charger.chargerType === powerType) &&
+        (!term ||
+          charger.name.toLowerCase().includes(term) ||
+          charger.chargerCode.toLowerCase().includes(term) ||
+          charger.ocppId.toLowerCase().includes(term)),
+    );
+  }, [chargers, powerType, search]);
+
+  const healthCounts = useMemo(() => {
+    const counts = {} as Record<Health, number>;
+    for (const key of Object.keys(HEALTH_LABELS) as Health[]) {
+      counts[key] = narrowed.filter((charger) => matchesHealth(charger, key, chargingIds)).length;
+    }
+    return counts;
+  }, [narrowed, chargingIds]);
+
+  const visibleChargers = narrowed.filter((charger) => matchesHealth(charger, health, chargingIds));
+  const visibleChargerIds = new Set(narrowed.map((charger) => charger.id));
+  const visibleSessions = sessions.filter(
+    (session) =>
+      (!powerType || session.chargerType === powerType) && visibleChargerIds.has(session.chargerId),
+  );
+  const liveConnectors = Object.values(connectors).filter((c) => visibleChargerIds.has(c.chargerId));
+  const chargerTotal = state.status === 'ok' ? state.data.chargerTotal : 0;
 
   return (
     <main className="mx-auto max-w-5xl px-6 py-12">
@@ -190,6 +301,60 @@ function MonitorContent() {
         </div>
       </div>
 
+      {/* ------------------------------------------------------------- filters */}
+      <div className="mt-6 flex flex-wrap gap-3">
+        <CompanyFilter
+          value={companyId}
+          onChange={(value) => {
+            setCompanyId(value);
+            setStationId(''); // a station from the previous company would match nothing
+          }}
+        />
+        <select
+          value={stationId}
+          onChange={(event) => setStationId(event.target.value)}
+          aria-label="Filter by station"
+          disabled={stationState.status !== 'ok'}
+          className={FILTER_SELECT_CLASS}
+        >
+          <option value="">All stations</option>
+          {stationState.status === 'ok' &&
+            stationState.data.items.map((station) => (
+              <option key={station.id} value={station.id}>
+                {station.name}
+              </option>
+            ))}
+        </select>
+        <PowerTypeFilter value={powerType} onChange={setPowerType} />
+        <input
+          type="search"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Charger name, code or OCPP id"
+          aria-label="Search chargers"
+          className={`min-w-0 flex-1 ${FILTER_SELECT_CLASS}`}
+        />
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label="Filter by health">
+        {(Object.keys(HEALTH_LABELS) as Health[]).map((key) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setHealth(key)}
+            aria-pressed={health === key}
+            className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+              health === key
+                ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
+                : 'border-neutral-300 hover:bg-neutral-500/10 dark:border-neutral-700'
+            } ${key === 'attention' && healthCounts.attention > 0 && health !== key ? 'text-red-600 dark:text-red-400' : ''}`}
+          >
+            {HEALTH_LABELS[key]}
+            {state.status === 'ok' && <span className="ml-1.5 tabular-nums opacity-70">{healthCounts[key]}</span>}
+          </button>
+        ))}
+      </div>
+
       {state.status === 'loading' && <p className="mt-8 text-sm text-neutral-500">Loading…</p>}
 
       {state.status === 'error' && (
@@ -202,15 +367,25 @@ function MonitorContent() {
         <>
           <section className="mt-8">
             <h2 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-neutral-500">
-              Chargers ({chargers.length})
+              Chargers ({visibleChargers.length})
             </h2>
+            {chargerTotal > chargers.length && (
+              <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-400">
+                Watching the first {chargers.length} of {chargerTotal} chargers. Pick a station to
+                narrow it down.
+              </p>
+            )}
             <div className="mt-3 space-y-2">
-              {chargers.length === 0 && (
+              {visibleChargers.length === 0 && (
                 <p className="rounded-xl border border-dashed border-neutral-300 p-8 text-center text-sm text-neutral-500 dark:border-neutral-700">
-                  No chargers yet.
+                  {chargers.length === 0
+                    ? 'No chargers yet.'
+                    : health === 'attention'
+                      ? 'Nothing needs attention right now.'
+                      : 'No chargers match these filters.'}
                 </p>
               )}
-              {chargers.map((charger) => (
+              {visibleChargers.map((charger) => (
                 <Link
                   key={charger.id}
                   href={`/chargers/${charger.id}`}
@@ -221,7 +396,7 @@ function MonitorContent() {
                     <p className="mt-0.5 truncate text-xs text-neutral-500">
                       <span className="font-mono">{charger.chargerCode}</span>
                       {' · '}
-                      {charger.powerKw} kW
+                      {charger.chargerType} {charger.powerKw} kW
                       {charger.lastHeartbeatAt
                         ? ` · beat ${new Date(charger.lastHeartbeatAt).toLocaleTimeString()}`
                         : ''}
@@ -277,15 +452,15 @@ function MonitorContent() {
 
           <section className="mt-10">
             <h2 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-neutral-500">
-              Charging now ({sessions.length})
+              Charging now ({visibleSessions.length})
             </h2>
             <div className="mt-3 space-y-2">
-              {sessions.length === 0 && (
+              {visibleSessions.length === 0 && (
                 <p className="rounded-xl border border-dashed border-neutral-300 p-8 text-center text-sm text-neutral-500 dark:border-neutral-700">
                   Nothing charging right now.
                 </p>
               )}
-              {sessions.map((session) => (
+              {visibleSessions.map((session) => (
                 <Link
                   key={session.id}
                   href={`/sessions/${session.id}`}
@@ -294,7 +469,10 @@ function MonitorContent() {
                   <div className="min-w-0">
                     <p className="truncate font-medium tabular-nums">{formatEnergy(session)}</p>
                     <p className="mt-0.5 truncate text-xs text-neutral-500">
+                      {session.companyName && `${session.companyName} · `}
                       connector {session.connectorNumber}
+                      {session.connectorType && ` · ${session.connectorType}`}
+                      {session.chargerType && ` · ${session.chargerType}`}
                       {session.transactionId !== null ? ` · txn ${session.transactionId}` : ''}
                     </p>
                   </div>

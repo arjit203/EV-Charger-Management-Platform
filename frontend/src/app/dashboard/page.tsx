@@ -120,7 +120,7 @@ function OperationsDashboard() {
       revenueSeries: revenueSeries?.points ?? null,
       topStations: topStations.stations,
       active: activePage.items,
-      activity: buildActivity(recentSessions.items, complaints.items, payments.items),
+      activity: buildActivity(recentSessions.items, complaints.items, payments.items, canSeeRevenue),
     };
   }, [canSeeRevenue]);
 

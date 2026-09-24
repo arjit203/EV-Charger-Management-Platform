@@ -163,7 +163,7 @@ chk('4. stationId was derived', stA.id, anchored.stationId);
 chk('4. chargerId was derived', chA.id, anchored.chargerId);
 chk('4. connectorId was derived', conA.id, anchored.connectorId);
 chk('   it opens in `open`', 'open', anchored.status);
-chk('   default priority is medium', 'medium', anchored.priority);
+chk('   triaged medium: a session problem on a charge that completed', 'medium', anchored.priority);
 
 chk('   sending stationId directly -> 422', 422,
   (await call('POST', '/complaints', { token: drivers.d1.token, body: {
@@ -211,11 +211,11 @@ console.log('\n=== THE CHARGER ANCHOR (no session to point at) ===');
 const chargerAnchored = (await must('POST', '/complaints', { token: drivers.d1.token, body: {
   category: 'charger_issue', subject: 'Screen dead on arrival',
   description: 'I arrived and the charger screen was completely dead. Never started a session.',
-  chargerId: chA.id, priority: 'high' } })).complaint;
+  chargerId: chA.id } })).complaint;
 chk('   station and company derived from the charger', [stA.id, A],
   [chargerAnchored.stationId, chargerAnchored.companyId]);
 chk('   no session is attached', null, chargerAnchored.chargingSessionId);
-chk('   the driver-set priority is kept', 'high', chargerAnchored.priority);
+chk('   triaged high automatically: a broken charger affects every driver', 'high', chargerAnchored.priority);
 
 console.log('\n=== AN ANCHORLESS COMPLAINT IS PLATFORM-LEVEL ===');
 const platform = (await must('POST', '/complaints', { token: drivers.d1.token, body: {
@@ -235,8 +235,9 @@ chk('3. empty description -> 422', 422, (await call('POST', '/complaints', { tok
   category: 'other', subject: 'A valid subject', description: '' } })).status);
 chk('3. unknown category -> 422', 422, (await call('POST', '/complaints', { token: drivers.d1.token, body: {
   category: 'alien_issue', subject: 'A valid subject', description: 'A description that is long enough.' } })).status);
-chk('3. unknown priority -> 422', 422, (await call('POST', '/complaints', { token: drivers.d1.token, body: {
-  category: 'other', subject: 'A valid subject', description: 'A description that is long enough.', priority: 'critical' } })).status);
+chk('3. driver sending any priority -> 422 (internal triage field)', 422, (await call('POST', '/complaints', { token: drivers.d1.token, body: {
+  category: 'other', subject: 'A valid subject', description: 'A description that is long enough.', priority: 'high' } })).status);
+chk('   an account problem is triaged medium', 'medium', platform.priority);
 chk('3. malformed session id -> 422', 422, (await call('POST', '/complaints', { token: drivers.d1.token, body: {
   category: 'session_issue', subject: 'A valid subject', description: 'A description that is long enough.',
   chargingSessionId: 'not-an-id' } })).status);
@@ -265,15 +266,15 @@ chk('8. driver cannot change status -> 403', 403,
 chk('8. driver cannot close their own complaint -> 403', 403,
   (await call('PATCH', `/complaints/${anchored.id}/status`, { token: drivers.d1.token, body: { status: 'closed' } })).status);
 
-console.log('\n=== PRIORITY: driver sets it once, then cannot change it ===');
-chk('   the driver set `high` at creation', 'high', chargerAnchored.priority);
-chk('   but cannot change it afterwards -> 403', 403,
+console.log('\n=== PRIORITY: set by the system, re-triaged by staff, invisible to the driver\'s control ===');
+chk('   the system set `high` at creation', 'high', chargerAnchored.priority);
+chk('   the driver cannot change it -> 403', 403,
   (await call('PATCH', `/complaints/${chargerAnchored.id}`, { token: drivers.d1.token, body: { priority: 'low' } })).status);
 chk('   and it is unchanged', 'high',
   (await must('GET', `/complaints/${chargerAnchored.id}`, { token: drivers.d1.token })).complaint.priority);
 chk('   a cpo_admin CAN change it', 200,
   (await call('PATCH', `/complaints/${chargerAnchored.id}`, { token: staff.cpoA.token, body: { priority: 'low' } })).status);
-chk('   an operator cannot -> 403', 403,
+chk('   an operator CAN too — triage is frontline work', 200,
   (await call('PATCH', `/complaints/${chargerAnchored.id}`, { token: staff.opA.token, body: { priority: 'high' } })).status);
 
 console.log('\n=== SUBJECT AND DESCRIPTION ARE IMMUTABLE ===');

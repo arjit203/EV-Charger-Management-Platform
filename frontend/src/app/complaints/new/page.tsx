@@ -19,12 +19,11 @@ import { CATEGORY_LABELS } from '@/components/ComplaintSummary';
 import { useAsyncData } from '@/hooks/useAsyncData';
 import { toMessage } from '@/lib/formatApiError';
 import { formatPaise } from '@/lib/money';
-import { createComplaint } from '@/services/complaint.service';
+import { createComplaint, getComplaint } from '@/services/complaint.service';
 import { getSession } from '@/services/session.service';
-import type { ComplaintCategory, ComplaintPriority } from '@/types/api';
+import type { ComplaintCategory } from '@/types/api';
 
 const CATEGORIES = Object.keys(CATEGORY_LABELS) as ComplaintCategory[];
-const PRIORITIES: ComplaintPriority[] = ['low', 'medium', 'high'];
 
 function NewComplaintContent() {
   const router = useRouter();
@@ -32,6 +31,16 @@ function NewComplaintContent() {
 
   const sessionId = searchParams.get('sessionId') ?? '';
   const chargerId = searchParams.get('chargerId') ?? '';
+  // A follow-up to a closed complaint. The server copies the original's session / charger, so
+  // this page sends nothing else as an anchor.
+  const followUpOf = searchParams.get('followUpOf') ?? '';
+
+  const loadOriginal = useCallback(
+    async () => (followUpOf ? (await getComplaint(followUpOf)).complaint : null),
+    [followUpOf],
+  );
+  const { state: originalState } = useAsyncData(loadOriginal);
+  const original = originalState.status === 'ok' ? originalState.data : null;
 
   // Load the anchored session purely to SHOW the driver what they are reporting about. The
   // server re-resolves it from the id anyway — this is confirmation, not input.
@@ -46,7 +55,6 @@ function NewComplaintContent() {
   );
   const [subject, setSubject] = useState('');
   const [description, setDescription] = useState('');
-  const [priority, setPriority] = useState<ComplaintPriority>('medium');
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -60,9 +68,14 @@ function NewComplaintContent() {
         category,
         subject: subject.trim(),
         description: description.trim(),
-        priority,
-        // At most one anchor. Sending both is a 422.
-        ...(sessionId ? { chargingSessionId: sessionId } : chargerId ? { chargerId } : {}),
+        // At most one anchor. Sending both is a 422. A follow-up sends none — it inherits one.
+        ...(followUpOf
+          ? { followUpOf }
+          : sessionId
+            ? { chargingSessionId: sessionId }
+            : chargerId
+              ? { chargerId }
+              : {}),
       });
       router.push(`/complaints/${complaint.id}`);
     } catch (caught) {
@@ -73,10 +86,23 @@ function NewComplaintContent() {
 
   return (
     <main className="mx-auto max-w-lg px-6 py-12">
-      <h1 className="text-2xl font-semibold">Report a problem</h1>
+      <h1 className="text-2xl font-semibold">
+        {followUpOf ? 'Report the problem again' : 'Report a problem'}
+      </h1>
       <p className="mt-1 text-sm text-neutral-500">
         Tell us what happened. The station operator will see it and respond.
       </p>
+
+      {original && (
+        <div className="mt-6 rounded-xl bg-neutral-500/5 p-4 text-sm">
+          <p className="text-xs uppercase tracking-wide text-neutral-500">Follow-up to</p>
+          <p className="mt-1 font-medium">{original.subject}</p>
+          <p className="mt-1 text-xs text-neutral-500">
+            Closed complaints cannot be reopened, so this becomes a new complaint linked to that
+            one. Support will see both.
+          </p>
+        </div>
+      )}
 
       {state.status === 'ok' && state.data && (
         <div className="mt-6 rounded-xl bg-neutral-500/5 p-4 text-sm">
@@ -131,21 +157,6 @@ function NewComplaintContent() {
           <span className="mt-1 block text-xs text-neutral-500">
             You will not be able to edit this afterwards — it becomes part of the record.
           </span>
-        </label>
-
-        <label className="block text-sm">
-          <span className="block font-medium">How urgent is it?</span>
-          <select
-            value={priority}
-            onChange={(event) => setPriority(event.target.value as ComplaintPriority)}
-            className="mt-1.5 w-full rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
-          >
-            {PRIORITIES.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
         </label>
 
         {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}

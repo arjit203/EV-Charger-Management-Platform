@@ -28,6 +28,8 @@ import { useAuth } from '@/context/AuthContext';
 import { useAsyncData } from '@/hooks/useAsyncData';
 import { toMessage } from '@/lib/formatApiError';
 import { getMapStations, getPublicStations } from '@/services/station.service';
+import type { UserLocation } from '@/components/map/StationMap';
+import { listStationConnectors } from '@/services/session.service';
 import type { AnyMapStation, StationStatus } from '@/types/api';
 import { isStaffMapStation } from '@/types/api';
 
@@ -39,6 +41,79 @@ import { isStaffMapStation } from '@/types/api';
  * merely misbehaving in the browser. `ssr: false` is only permitted inside a Client
  * Component, which this page is.
  */
+/**
+ * The plugs at the selected station. For a driver each usable one links to start a charge;
+ * staff see the same list read-only, because starting a charge is a driver action (the API
+ * refuses anyone else) and linking them to /charge only bounced them back to the dashboard.
+ *
+ * THE HOLE THIS FILLS. The map could say "3 of 6 available" but never which three, so the
+ * last step of the journey had no route: a driver who had found a station still needed a
+ * connector id from somewhere else. Pasting one is what the /charge box was for, and in a
+ * demo that means reading a 24-character hex string aloud.
+ *
+ * Loaded per selection rather than folded into the map payload. The list endpoint returns
+ * every station; attaching every plug to every station would multiply a list response by
+ * the size of the estate to answer a question about ONE station.
+ */
+function StationConnectors({ stationId, canStart }: { stationId: string; canStart: boolean }) {
+  // Wrapped, because an unwrapped closure is a new identity every render and refetches forever.
+  const load = useCallback(() => listStationConnectors(stationId), [stationId]);
+  const { state } = useAsyncData(load);
+
+  if (state.status === 'loading') {
+    return <p className="mt-4 text-sm text-neutral-500">Loading connectors&hellip;</p>;
+  }
+  if (state.status === 'error') {
+    return <p className="mt-4 text-sm text-red-700 dark:text-red-400">{state.error.message}</p>;
+  }
+  if (state.data.length === 0) {
+    return <p className="mt-4 text-sm text-neutral-500">No connectors installed here yet.</p>;
+  }
+
+  return (
+    <div className="mt-4">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Plugs</h3>
+      <ul className="mt-2 space-y-2">
+        {state.data.map((c) => {
+          const label = `${c.chargerName} · #${c.connectorNumber} · ${c.connectorType} · ${c.powerKw} kW`;
+
+          /*
+           * An unusable plug is still SHOWN, just not linked. Hiding it only prompts "why is
+           * there nothing here?" — the reason the server already computed is the answer.
+           */
+          if (!c.canStart || !canStart) {
+            return (
+              <li
+                key={c.connectorId}
+                className={`rounded-lg border border-neutral-200 p-3 text-sm dark:border-neutral-800 ${c.canStart ? '' : 'opacity-60'}`}
+              >
+                <p className="font-medium">{label}</p>
+                <p className="mt-0.5 text-xs text-neutral-500">
+                  {c.canStart ? 'Available' : (c.unavailableReason ?? 'Unavailable right now.')}
+                </p>
+              </li>
+            );
+          }
+
+          return (
+            <li key={c.connectorId}>
+              <Link
+                href={`/charge?connectorId=${c.connectorId}`}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-neutral-200 p-3 text-sm transition-colors hover:bg-neutral-500/10 dark:border-neutral-800"
+              >
+                <span className="font-medium">{label}</span>
+                <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+                  Start a charge &rarr;
+                </span>
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 const StationMap = dynamic(() => import('@/components/map/StationMap'), {
   ssr: false,
   loading: () => (
@@ -50,6 +125,24 @@ const StationMap = dynamic(() => import('@/components/map/StationMap'), {
 
 const STATUS_OPTIONS: (StationStatus | '')[] = ['', 'active', 'inactive', 'suspended'];
 
+const RADIUS_OPTIONS = [5, 10, 25, 50, 100];
+
+/**
+ * ~100 m precision. Plenty to find a charger, and it keeps an exact home address out of the
+ * request — and therefore out of the server's access logs, which record every URL.
+ */
+function roundCoordinate(value: number): number {
+  return Math.round(value * 1000) / 1000;
+}
+
+function locationErrorMessage(error: GeolocationPositionError): string {
+  if (error.code === error.PERMISSION_DENIED) {
+    return 'Location permission was denied. Allow location for this site in your browser settings, or search by city instead.';
+  }
+  if (error.code === error.TIMEOUT) return 'Finding your location took too long. Try again.';
+  return 'Your location is not available right now. Search by city instead.';
+}
+
 function StationMapPage() {
   const { user } = useAuth();
   const isDriver = user?.role === 'driver';
@@ -59,6 +152,37 @@ function StationMapPage() {
   const [status, setStatus] = useState<StationStatus | ''>('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [listOpenOnMobile, setListOpenOnMobile] = useState(true);
+
+  // "Near me" — driver only. Held in memory for this page; never saved anywhere.
+  const [userLocation, setUserLocation] = useState<UserLocation | null>(null);
+  const [radiusKm, setRadiusKm] = useState(25);
+  const [isLocating, setIsLocating] = useState(false);
+  const [locationError, setLocationError] = useState<string | null>(null);
+
+  function findNearMe() {
+    if (!('geolocation' in navigator)) {
+      setLocationError('This browser cannot share its location. Search by city instead.');
+      return;
+    }
+    setIsLocating(true);
+    setLocationError(null);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setUserLocation({
+          lat: roundCoordinate(position.coords.latitude),
+          lng: roundCoordinate(position.coords.longitude),
+        });
+        setSelectedId(null);
+        setIsLocating(false);
+      },
+      (error) => {
+        setLocationError(locationErrorMessage(error));
+        setIsLocating(false);
+      },
+      // A cached fix up to a minute old is fine for "which charger is close".
+      { enableHighAccuracy: false, timeout: 10_000, maximumAge: 60_000 },
+    );
+  }
 
   /*
    * SERVER-SIDE filtering, reusing the query parameters Module 4 already built. A second,
@@ -70,6 +194,7 @@ function StationMapPage() {
       const result = await getPublicStations({
         search: search || undefined,
         city: city || undefined,
+        ...(userLocation ? { lat: userLocation.lat, lng: userLocation.lng, radiusKm } : {}),
       });
       return result.stations;
     }
@@ -80,7 +205,7 @@ function StationMapPage() {
       status: status || undefined,
     });
     return result.stations;
-  }, [isDriver, search, city, status]);
+  }, [isDriver, search, city, status, userLocation, radiusKm]);
 
   const { state, reload } = useAsyncData(load);
 
@@ -171,7 +296,56 @@ function StationMapPage() {
         >
           Apply
         </button>
+
+        {/*
+          * NEAR ME. The browser asks the driver for permission first — nothing happens without
+          * it. The position is rounded, used for this one search, and never stored.
+          */}
+        {isDriver && (
+          <div className="flex flex-wrap items-end gap-2">
+            {userLocation ? (
+              <>
+                <label className="flex flex-col gap-1 text-xs text-neutral-500">
+                  Within
+                  <select
+                    value={radiusKm}
+                    onChange={(event) => setRadiusKm(Number(event.target.value))}
+                    className="rounded-lg border border-neutral-300 bg-transparent px-2.5 py-1.5 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
+                  >
+                    {RADIUS_OPTIONS.map((km) => (
+                      <option key={km} value={km}>
+                        {km} km
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setUserLocation(null)}
+                  className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm transition-colors hover:bg-neutral-500/10 dark:border-neutral-700"
+                >
+                  Show all stations
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={findNearMe}
+                disabled={isLocating}
+                className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-[var(--accent-contrast)] transition-opacity hover:opacity-90 disabled:opacity-60"
+              >
+                {isLocating ? 'Finding you…' : 'Stations near me'}
+              </button>
+            )}
+          </div>
+        )}
       </form>
+
+      {locationError && (
+        <p role="alert" className="rounded-lg bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-300">
+          {locationError}
+        </p>
+      )}
 
       {state.status === 'error' && (
         <div className="rounded-lg border border-red-300 bg-red-500/5 p-4 text-sm text-red-700 dark:border-red-900 dark:text-red-400">
@@ -193,6 +367,7 @@ function StationMapPage() {
             {state.status === 'loading'
               ? 'Loading stations…'
               : `${stations.length} station${stations.length === 1 ? '' : 's'}` +
+                (userLocation ? ` within ${radiusKm} km, nearest first` : '') +
                 (placeableCount !== stations.length
                   ? ` · ${stations.length - placeableCount} without coordinates, listed but not mapped`
                   : '')}
@@ -227,7 +402,9 @@ function StationMapPage() {
                     selectedId={selectedId}
                     onSelect={handleSelect}
                     emptyMessage={
-                      search || city || status
+                      userLocation
+                        ? `No stations within ${radiusKm} km. Try a wider radius.`
+                        : search || city || status
                         ? 'No stations match those filters.'
                         : isDriver
                           ? 'No charging stations are available yet.'
@@ -239,7 +416,7 @@ function StationMapPage() {
             </section>
 
             <section className="order-1 h-[20rem] overflow-hidden rounded-xl border border-neutral-200 lg:order-2 lg:h-auto dark:border-neutral-800">
-              {placeableCount === 0 && state.status === 'ok' ? (
+              {placeableCount === 0 && state.status === 'ok' && !userLocation ? (
                 <div className="flex h-full items-center justify-center bg-neutral-100 p-6 dark:bg-neutral-900">
                   <p className="max-w-xs text-center text-sm text-neutral-500">
                     {stations.length === 0
@@ -252,6 +429,7 @@ function StationMapPage() {
                   stations={stations}
                   selectedId={selectedId}
                   onSelect={handleSelect}
+                  userLocation={userLocation}
                 />
               )}
             </section>
@@ -320,6 +498,8 @@ function StationMapPage() {
               {isStaffMapStation(selected) && (
                 <p className="mt-3 text-xs text-neutral-500">Code: {selected.stationCode}</p>
               )}
+
+              <StationConnectors stationId={selected.id} canStart={isDriver} />
             </section>
           )}
         </>

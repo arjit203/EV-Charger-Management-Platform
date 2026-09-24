@@ -16,6 +16,7 @@ import { validateBody, validateParams, validateQuery } from '../middlewares/vali
 import { ROLES } from '../constants/roles';
 import {
   createRechargeOrderSchema,
+  listPaymentsQuerySchema,
   listQuerySchema,
   paymentIdParamSchema,
   verifyRechargeSchema,
@@ -48,7 +49,7 @@ router.use(authenticate);
 router.get(
   '/',
   authorize(ROLES.SUPER_ADMIN, ROLES.CPO_ADMIN, ROLES.OPERATOR, ROLES.DRIVER),
-  validateQuery(listQuerySchema),
+  validateQuery(listPaymentsQuerySchema),
   listPayments,
 );
 

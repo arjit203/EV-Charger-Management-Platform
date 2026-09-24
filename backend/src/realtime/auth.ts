@@ -75,13 +75,19 @@ export async function authenticateSocket(
     const user = await User.findById(payload.sub).select('_id email role status companyId');
 
     if (!user) {
-      logger.warn(SCOPE, `Socket rejected: account ${String(payload.sub)} no longer exists`);
+      logger.warn(
+        SCOPE,
+        `Refused a live-updates connection: the account it logged in with (${String(payload.sub)}) has been deleted`,
+      );
       next(reject('Authentication failed'));
       return;
     }
 
     if (user.status !== 'active') {
-      logger.warn(SCOPE, `Socket rejected: account ${user.email} is ${user.status}`);
+      logger.warn(
+        SCOPE,
+        `Refused a live-updates connection for ${user.email}: the account is ${user.status}`,
+      );
       next(reject('Authentication failed'));
       return;
     }
@@ -92,14 +98,20 @@ export async function authenticateSocket(
     // role with no company at all fails closed rather than connecting unscoped.
     if (user.role !== ROLES.SUPER_ADMIN && user.role !== ROLES.DRIVER) {
       if (!companyId) {
-        logger.warn(SCOPE, `Socket rejected: ${user.email} has no company`);
+        logger.warn(
+          SCOPE,
+          `Refused a live-updates connection for ${user.email}: staff account isn't linked to any company`,
+        );
         next(reject('Authentication failed'));
         return;
       }
 
       const company = await Company.findById(companyId).select('status');
       if (!company || company.status !== 'active') {
-        logger.warn(SCOPE, `Socket rejected: company for ${user.email} is unavailable`);
+        logger.warn(
+          SCOPE,
+          `Refused a live-updates connection for ${user.email}: their company is suspended or deleted`,
+        );
         next(reject('Authentication failed'));
         return;
       }
@@ -116,7 +128,8 @@ export async function authenticateSocket(
   } catch (error) {
     logger.warn(
       SCOPE,
-      `Socket handshake rejected: ${error instanceof Error ? error.message : String(error)}`,
+      `Refused a live-updates connection: invalid or expired login ` +
+        `(${error instanceof Error ? error.message : String(error)})`,
     );
     next(reject('Authentication failed'));
   }

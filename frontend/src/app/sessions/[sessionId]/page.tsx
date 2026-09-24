@@ -224,7 +224,15 @@ function SessionDetail({
           }`}
         >
           {session.paymentStatus === 'paid' ? (
-            <>Paid {formatPaise(session.amountPaise)} from your wallet.</>
+            <>
+              Paid {formatPaise(session.amountPaise)} from {isOwner ? 'your' : "the driver's"} wallet.
+            </>
+          ) : !isOwner ? (
+            <>
+              <strong>{formatPaise(session.amountPaise)} is outstanding.</strong> The driver&apos;s
+              balance was too low when this charge ended. It is collected automatically when they
+              top up.
+            </>
           ) : (
             <>
               <strong>{formatPaise(session.amountPaise)} is outstanding.</strong> Your balance was
@@ -277,8 +285,11 @@ function SessionDetail({
         Where a dispute actually starts. The session id goes in the URL as the complaint's
         ANCHOR, and the server derives the charger, station and company from it — the driver
         never selects them, so a mismatched set cannot be submitted.
+
+        Owner only: /complaints/new is a driver page, so showing this to staff just bounced them
+        to the dashboard.
       */}
-      {!isOpen && (
+      {!isOpen && isOwner && (
         <Link
           href={`/complaints/new?sessionId=${session.id}`}
           className="inline-block text-sm text-neutral-500 underline underline-offset-4"

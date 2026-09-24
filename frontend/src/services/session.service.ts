@@ -12,7 +12,10 @@ import type {
   ActiveSessionPayload,
   ChargingSession,
   ConnectorChargingPayload,
+  StationConnectorsPayload,
+  ChargerType,
   ConnectorChargingView,
+  ConnectorType,
   MeterReading,
   Paginated,
   ReadingsPayload,
@@ -28,6 +31,8 @@ export interface ListSessionsParams {
   stationId?: string;
   chargerId?: string;
   companyId?: string;
+  chargerType?: ChargerType;
+  connectorType?: ConnectorType;
 }
 
 /**
@@ -76,6 +81,17 @@ export async function getConnectorForCharging(
     { cache: 'no-store' },
   );
   return connector;
+}
+
+/** Every plug at one station, so a driver can pick one instead of being handed an id. */
+export async function listStationConnectors(
+  stationId: string,
+): Promise<ConnectorChargingView[]> {
+  const { connectors } = await apiRequest<StationConnectorsPayload>(
+    `/charging/stations/${stationId}/connectors`,
+    { cache: 'no-store' },
+  );
+  return connectors;
 }
 
 /**

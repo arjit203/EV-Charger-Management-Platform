@@ -21,7 +21,8 @@ import { useAuth } from '@/context/AuthContext';
 import { useAsyncData } from '@/hooks/useAsyncData';
 import { toMessage } from '@/lib/formatApiError';
 import { listSessions } from '@/services/session.service';
-import type { SessionStatus } from '@/types/api';
+import { CompanyFilter, FILTER_SELECT_CLASS, PlugTypeFilter, PowerTypeFilter } from '@/components/filters';
+import type { ChargerType, ConnectorType, SessionStatus } from '@/types/api';
 
 const STATUS_OPTIONS: SessionStatus[] = [
   'initiating',
@@ -37,6 +38,9 @@ function SessionListContent() {
 
   const [status, setStatus] = useState<SessionStatus | ''>('');
   const [activeOnly, setActiveOnly] = useState(false);
+  const [companyId, setCompanyId] = useState('');
+  const [chargerType, setChargerType] = useState<ChargerType | ''>('');
+  const [connectorType, setConnectorType] = useState<ConnectorType | ''>('');
 
   const load = useCallback(
     () =>
@@ -44,8 +48,11 @@ function SessionListContent() {
         limit: 25,
         ...(status ? { status } : {}),
         ...(activeOnly ? { active: true } : {}),
+        ...(companyId ? { companyId } : {}),
+        ...(chargerType ? { chargerType } : {}),
+        ...(connectorType ? { connectorType } : {}),
       }),
-    [status, activeOnly],
+    [status, activeOnly, companyId, chargerType, connectorType],
   );
 
   const { state } = useAsyncData(load);
@@ -77,7 +84,8 @@ function SessionListContent() {
         <select
           value={status}
           onChange={(event) => setStatus(event.target.value as SessionStatus | '')}
-          className="rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
+          aria-label="Filter by status"
+          className={FILTER_SELECT_CLASS}
         >
           <option value="">All statuses</option>
           {STATUS_OPTIONS.map((option) => (
@@ -98,6 +106,10 @@ function SessionListContent() {
           />
           In progress only
         </label>
+
+        <CompanyFilter value={companyId} onChange={setCompanyId} />
+        <PowerTypeFilter value={chargerType} onChange={setChargerType} />
+        <PlugTypeFilter value={connectorType} onChange={setConnectorType} />
       </div>
 
       <div className="mt-6 space-y-3">
@@ -111,7 +123,9 @@ function SessionListContent() {
 
         {state.status === 'ok' && state.data.items.length === 0 && (
           <p className="rounded-xl border border-dashed border-neutral-300 p-8 text-center text-sm text-neutral-500 dark:border-neutral-700">
-            No charging sessions yet.
+            {status || activeOnly || companyId || chargerType || connectorType
+              ? 'No sessions match these filters.'
+              : 'No charging sessions yet.'}
           </p>
         )}
 

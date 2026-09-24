@@ -12,10 +12,11 @@ import { useCallback, useState } from 'react';
 import Link from 'next/link';
 
 import { RequireAuth } from '@/components/RequireAuth';
+import { FILTER_SELECT_CLASS } from '@/components/filters';
 import { StatusBadge } from '@/components/StatusBadge';
 import { useAsyncData } from '@/hooks/useAsyncData';
 import { listCompanies } from '@/services/company.service';
-import type { Company, CompanyStatus } from '@/types/api';
+import { COMPANY_TYPE_LABELS, type Company, type CompanyStatus, type CompanyType } from '@/types/api';
 import { buttonClasses } from '@/components/ui/Button';
 
 function CompanyRow({ company }: { company: Company }) {
@@ -40,10 +41,17 @@ function CompanyRow({ company }: { company: Company }) {
 function CompanyListContent() {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<CompanyStatus | ''>('');
+  const [type, setType] = useState<CompanyType | ''>('');
 
   const load = useCallback(
-    () => listCompanies({ search: search || undefined, status: status || undefined, limit: 50 }),
-    [search, status],
+    () =>
+      listCompanies({
+        search: search || undefined,
+        status: status || undefined,
+        type: type || undefined,
+        limit: 50,
+      }),
+    [search, status, type],
   );
 
   const { state } = useAsyncData(load);
@@ -53,7 +61,7 @@ function CompanyListContent() {
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-xs font-medium uppercase tracking-widest text-neutral-500">
-            EV-CMS &middot; Module 2
+            EV-CMS
           </p>
           <h1 className="mt-1 text-2xl font-semibold">Companies</h1>
           <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
@@ -85,6 +93,19 @@ function CompanyListContent() {
           <option value="">All statuses</option>
           <option value="active">Active</option>
           <option value="suspended">Suspended</option>
+        </select>
+        <select
+          value={type}
+          onChange={(e) => setType(e.target.value as CompanyType | '')}
+          aria-label="Filter by company type"
+          className={FILTER_SELECT_CLASS}
+        >
+          <option value="">All types</option>
+          {(Object.keys(COMPANY_TYPE_LABELS) as CompanyType[]).map((t) => (
+            <option key={t} value={t}>
+              {COMPANY_TYPE_LABELS[t]}
+            </option>
+          ))}
         </select>
       </div>
 

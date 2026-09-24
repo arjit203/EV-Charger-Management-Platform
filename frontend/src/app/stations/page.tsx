@@ -12,6 +12,7 @@ import { useCallback, useState } from 'react';
 import Link from 'next/link';
 
 import { RequireAuth } from '@/components/RequireAuth';
+import { CompanyFilter, FILTER_SELECT_CLASS } from '@/components/filters';
 import { StatusBadge } from '@/components/StatusBadge';
 import { useAuth } from '@/context/AuthContext';
 import { useAsyncData } from '@/hooks/useAsyncData';
@@ -48,10 +49,19 @@ function StationListContent() {
   const { user } = useAuth();
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<StationStatus | ''>('');
+  const [city, setCity] = useState('');
+  const [companyId, setCompanyId] = useState('');
 
   const load = useCallback(
-    () => listStations({ search: search || undefined, status: status || undefined, limit: 50 }),
-    [search, status],
+    () =>
+      listStations({
+        search: search || undefined,
+        status: status || undefined,
+        city: city.trim() || undefined,
+        companyId: companyId || undefined,
+        limit: 50,
+      }),
+    [search, status, city, companyId],
   );
 
   const { state } = useAsyncData(load);
@@ -62,7 +72,7 @@ function StationListContent() {
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-xs font-medium uppercase tracking-widest text-neutral-500">
-            EV-CMS &middot; Module 4
+            EV-CMS
           </p>
           <h1 className="mt-1 text-2xl font-semibold">Charging stations</h1>
           <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
@@ -97,6 +107,12 @@ function StationListContent() {
           <option value="inactive">Inactive</option>
           <option value="suspended">Suspended</option>
         </select>
+        <input
+          type="search" placeholder="City" aria-label="Filter by city"
+          value={city} onChange={(e) => setCity(e.target.value)}
+          className={`w-32 ${FILTER_SELECT_CLASS}`}
+        />
+        <CompanyFilter value={companyId} onChange={setCompanyId} />
       </div>
 
       {state.status === 'loading' ? (

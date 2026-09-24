@@ -12,6 +12,7 @@
  */
 
 import { z } from 'zod';
+import { PAYMENT_STATUSES, PAYMENT_PURPOSES } from '../constants/wallet';
 
 import { MAX_RECHARGE_PAISE, MIN_RECHARGE_PAISE } from '../constants/wallet';
 import { rupeesToPaise } from '../utils/money';
@@ -64,3 +65,20 @@ export const listQuerySchema = z
 export type CreateRechargeOrderInput = z.infer<typeof createRechargeOrderSchema>;
 export type VerifyRechargeInput = z.infer<typeof verifyRechargeSchema>;
 export type ListQuery = z.infer<typeof listQuerySchema>;
+
+/**
+ * The billing ledger's filters. What a finance user reaches for first: what state is the money
+ * in, is it a sale or a deposit, and — for the platform admin — whose is it.
+ */
+export const listPaymentsQuerySchema = z
+  .object({
+    page: z.coerce.number().int().min(1).optional(),
+    limit: z.coerce.number().int().min(1).max(100).optional(),
+    status: z.enum(PAYMENT_STATUSES).optional(),
+    purpose: z.enum(PAYMENT_PURPOSES).optional(),
+    /** Honoured for super_admin only; everyone else is already scoped to their company. */
+    companyId: objectId.optional(),
+  })
+  .strict();
+
+export type ListPaymentsQuery = z.infer<typeof listPaymentsQuerySchema>;

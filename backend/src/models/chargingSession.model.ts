@@ -23,6 +23,8 @@ import {
   type SessionStatus,
   type StopReason,
 } from '../constants/session';
+import { CHARGER_TYPES, type ChargerType } from '../constants/charger';
+import { CONNECTOR_TYPES, type ConnectorType } from '../constants/connector';
 
 export interface IChargingSession {
   /** OWNERSHIP. Always from the verified token, never from a request body. */
@@ -35,6 +37,18 @@ export interface IChargingSession {
   chargerId: Types.ObjectId;
   connectorId: Types.ObjectId;
   connectorNumber: number;
+  /**
+   * SNAPSHOTS of the hardware at start — AC/DC and the plug standard.
+   *
+   * Copied, not joined, for the same reason the price is: a session is a billing record (a CDR
+   * in OCPI terms), and it must describe the equipment that was actually used even if the
+   * charger is later reconfigured or the connector replaced. It also makes "all DC sessions"
+   * or "all CHAdeMO sessions" a plain indexed filter instead of a join.
+   *
+   * Null only on sessions created before the field existed, until the backfill runs.
+   */
+  chargerType: ChargerType | null;
+  connectorType: ConnectorType | null;
 
   /** The CHARGER's id for this transaction. Null until StartTransaction confirms. */
   transactionId: number | null;
@@ -92,6 +106,10 @@ const chargingSessionSchema = new Schema<IChargingSession, ChargingSessionModel>
 
     /** Denormalised: OCPP addresses connectors by number, and this survives a connector edit. */
     connectorNumber: { type: Number, required: true, min: 1, max: 8 },
+
+    /** Snapshots — see the interface note. */
+    chargerType: { type: String, enum: CHARGER_TYPES, default: null },
+    connectorType: { type: String, enum: CONNECTOR_TYPES, default: null },
 
     /**
      * The OCPP transaction id — the CHARGER's identifier for this event, which it echoes in
@@ -315,6 +333,8 @@ export interface PublicChargingSession {
   chargerId: string;
   connectorId: string;
   connectorNumber: number;
+  chargerType: ChargerType | null;
+  connectorType: ConnectorType | null;
   transactionId: number | null;
   status: SessionStatus;
   /**
@@ -367,6 +387,8 @@ export function toPublicChargingSession(
     chargerId: String(session.chargerId),
     connectorId: String(session.connectorId),
     connectorNumber: session.connectorNumber,
+    chargerType: session.chargerType ?? null,
+    connectorType: session.connectorType ?? null,
     transactionId: session.transactionId,
     status: session.status,
     idTag: session.idTag,

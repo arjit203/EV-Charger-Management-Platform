@@ -54,22 +54,25 @@ export function attachRealtime(httpServer: HttpServer): void {
     const rooms = roomsFor(user);
     if (rooms.length > 0) void socket.join(rooms);
 
-    logger.info(SCOPE, `Socket connected: ${user.email} (${user.role}) -> [${rooms.join(', ')}]`);
+    logger.info(
+      SCOPE,
+      `${user.email} (${user.role}) opened live updates — subscribed to ${rooms.join(', ')}`,
+    );
 
     socket.on('disconnect', (reason) => {
-      logger.info(SCOPE, `Socket disconnected: ${user.email} (${reason})`);
+      logger.info(SCOPE, `${user.email} closed live updates (${reason})`);
     });
 
     // A malformed frame or a handler throwing must not take the process down. Socket.IO
     // surfaces those here rather than as an uncaught exception.
     socket.on('error', (error: unknown) => {
-      logger.error(SCOPE, `Socket error for ${user.email}`, error);
+      logger.error(SCOPE, `Live-updates connection problem for ${user.email}`, error);
     });
   });
 
   setServer(io);
 
-  logger.info(SCOPE, 'Socket.IO listening on /socket.io');
+  logger.info(SCOPE, 'Browsers can now connect for live updates at /socket.io');
 }
 
 /** Close every browser socket cleanly. Called during shutdown, beside the OCPP gateway's. */

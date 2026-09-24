@@ -31,12 +31,15 @@ import {
   SETTLEMENT_RETRY_MAX_MS,
   SETTLEMENT_SWEEP_BATCH,
   SETTLEMENT_SWEEP_INTERVAL_MS,
+  type PaymentPurpose,
+  type PaymentStatus,
 } from '../constants/wallet';
 import { ROLES } from '../constants/roles';
 import { ApiError } from '../utils/ApiError';
 import { applyCompanyScope } from '../utils/companyScope';
 import { applyOwnerScope } from '../utils/ownerScope';
 import { logger } from '../utils/logger';
+import { describeSession, describeUser, sessionRef } from '../utils/logLabels';
 import { formatPaise } from '../utils/money';
 import * as provider from '../payments/razorpay';
 import { applyMovement, getOrCreateWallet } from './wallet.service';
@@ -104,7 +107,7 @@ export async function createRechargeOrder(
     payment.failureReason = 'Could not reach the payment provider.';
     await payment.save();
 
-    logger.error(SCOPE, 'Razorpay order creation failed', error);
+    logger.error(SCOPE, "Couldn't create a Razorpay order for a wallet top-up — Razorpay may be down", error);
     throw new ApiError(502, 'The payment provider is unavailable. Please try again.', 'PROVIDER_UNAVAILABLE');
   }
 
@@ -148,7 +151,10 @@ export async function verifyAndCredit(
   actorId?: string,
 ): Promise<{ payment: PublicPaymentTransaction; alreadyProcessed: boolean }> {
   if (!provider.verifyPaymentSignature(input.providerOrderId, input.providerPaymentId, input.signature)) {
-    logger.warn(SCOPE, `Signature rejected for order ${input.providerOrderId}`);
+    logger.warn(
+      SCOPE,
+      `Rejected a top-up confirmation for Razorpay order ${input.providerOrderId}: the signature didn't match, so it may be forged`,
+    );
     throw ApiError.badRequest('Payment verification failed.');
   }
 
@@ -247,14 +253,21 @@ export async function verifyAndCredit(
     return { payment: toPublicPaymentTransaction(settled), alreadyProcessed: true };
   }
 
-  logger.info(SCOPE, `Credited ${formatPaise(settled.amountPaise)} to wallet ${String(settled.walletId)}`);
+  logger.info(
+    SCOPE,
+    `Wallet top-up: added ${formatPaise(settled.amountPaise)} to ${await describeUser(settled.userId)}'s wallet`,
+  );
 
   // A top-up is the moment an unpayable debt may have become payable. Fire-and-forget: the
   // recharge already succeeded and must not be failed by a settlement problem.
   void notify.walletRecharged(settled.userId, settled._id, settled.amountPaise);
 
   void settleOutstandingForUser(String(settled.userId)).catch((error: unknown) =>
-    logger.error(SCOPE, 'Post-recharge settlement failed', error),
+    logger.error(
+      SCOPE,
+      "After a top-up, couldn't collect the driver's unpaid sessions — the retry job will try again",
+      error,
+    ),
   );
 
   return { payment: toPublicPaymentTransaction(settled), alreadyProcessed: false };
@@ -281,7 +294,7 @@ export interface WebhookResult {
  */
 export async function handleWebhook(rawBody: Buffer, signature: string): Promise<WebhookResult> {
   if (!provider.verifyWebhookSignature(rawBody, signature)) {
-    logger.warn(SCOPE, 'Webhook rejected: bad signature');
+    logger.warn(SCOPE, 'Rejected a Razorpay webhook: the signature was wrong, so it did not come from Razorpay');
     throw ApiError.badRequest('Invalid webhook signature.');
   }
 
@@ -470,8 +483,10 @@ export async function settleSession(sessionId: string): Promise<SettlementResult
     if (payment.attempts <= SETTLEMENT_LOUD_ATTEMPTS) {
       logger.warn(
         SCOPE,
-        `Session ${sessionId} unpaid: wallet short of ${formatPaise(amountPaise)} ` +
-          `(attempt ${payment.attempts}, next in ${Math.round(retryDelayMs(payment.attempts) / 1000)}s)`,
+        `Payment pending for charging on ${await describeSession(charging)}: the wallet can't ` +
+          `cover ${formatPaise(amountPaise)}. Will retry in ` +
+          `${Math.round(retryDelayMs(payment.attempts) / 1000)}s (attempt ${payment.attempts}). ` +
+          sessionRef(charging),
       );
     }
 
@@ -482,7 +497,11 @@ export async function settleSession(sessionId: string): Promise<SettlementResult
      */
     void notify.paymentPending(charging, amountPaise);
   } else if (outcome.status === 'paid') {
-    logger.info(SCOPE, `Session ${sessionId} settled: ${formatPaise(amountPaise)}`);
+    logger.info(
+      SCOPE,
+      `Collected ${formatPaise(amountPaise)} from the driver's wallet for charging on ` +
+        `${await describeSession(charging)} ${sessionRef(charging)}`,
+    );
     void notify.paymentSucceeded(charging, amountPaise);
   }
   // 'skipped' means a concurrent attempt won the claim and our debit was rolled back. Nothing
@@ -624,7 +643,7 @@ export function startSettlementSweeper(): void {
 
   sweepTimer = setInterval(() => {
     void sweepUnsettledSessions().catch((error: unknown) =>
-      logger.error(SCOPE, 'Settlement sweep failed', error),
+      logger.error(SCOPE, 'Background retry of unpaid charging sessions failed', error),
     );
   }, SETTLEMENT_SWEEP_INTERVAL_MS);
 
@@ -713,7 +732,8 @@ export async function sweepUnsettledSessions(limit = SETTLEMENT_SWEEP_BATCH): Pr
   if (sessionIds.length > 0) {
     logger.info(
       SCOPE,
-      `Settlement sweep: ${sessionIds.length} due, ${settled} settled, ${sessionIds.length - settled} still short`,
+      `Retried unpaid charging sessions: ${sessionIds.length} checked, ${settled} now paid, ` +
+        `${sessionIds.length - settled} still waiting for the driver to top up`,
     );
   }
 
@@ -739,8 +759,17 @@ export async function listPayments(
   actor: AuthUser,
   page = 1,
   limit = 20,
+  filters: { status?: PaymentStatus; purpose?: PaymentPurpose; companyId?: string } = {},
 ): Promise<Paginated<PublicPaymentTransaction>> {
-  const scoped = applyPaymentScope(actor, {});
+  const filter: Record<string, unknown> = {};
+  if (filters.status) filter.status = filters.status;
+  if (filters.purpose) filter.purpose = filters.purpose;
+  // super_admin only: a scoped caller's company is pinned by the scope and cannot be changed.
+  if (filters.companyId && actor.role === ROLES.SUPER_ADMIN) {
+    filter.companyId = new Types.ObjectId(filters.companyId);
+  }
+
+  const scoped = applyPaymentScope(actor, filter);
 
   const [items, total] = await Promise.all([
     PaymentTransaction.find(scoped).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit),
@@ -834,7 +863,11 @@ export async function refundRecharge(
   const updated = await PaymentTransaction.findById(paymentId);
   if (!updated) throw ApiError.notFound('Payment not found.');
 
-  logger.info(SCOPE, `Recharge ${paymentId} reversed`);
+  logger.info(
+    SCOPE,
+    `Reversed a ${formatPaise(updated.amountPaise)} wallet top-up for ${await describeUser(updated.userId)} ` +
+      `[payment ${paymentId}]`,
+  );
 
   return toPublicPaymentTransaction(updated);
 }

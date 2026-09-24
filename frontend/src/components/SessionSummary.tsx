@@ -83,9 +83,12 @@ export function SessionRow({ session }: { session: ChargingSession }) {
           )}
           <span className="ml-2 text-xs font-normal text-neutral-500">
             connector {session.connectorNumber}
+            {session.connectorType && ` · ${session.connectorType}`}
+            {session.chargerType && ` · ${session.chargerType}`}
           </span>
         </p>
         <p className="mt-0.5 truncate text-xs text-neutral-500">
+          {session.companyName && `${session.companyName} · `}
           {formatWhen(session.startedAt ?? session.requestedAt)}
           {' · '}
           {formatDuration(session)}

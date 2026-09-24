@@ -188,6 +188,8 @@ async function main(): Promise<void> {
             chargerId: charger._id,
             connectorId: connector._id,
             connectorNumber: connector.connectorNumber,
+            chargerType: charger.chargerType,
+            connectorType: connector.connectorType,
             transactionId: null,
             idTag,
             status: 'completed',

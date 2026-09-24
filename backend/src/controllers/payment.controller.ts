@@ -15,6 +15,7 @@ import { asyncHandler } from '../utils/asyncHandler';
 import { paiseToRupees } from '../utils/money';
 import type {
   CreateRechargeOrderInput,
+  ListPaymentsQuery,
   ListQuery,
   VerifyRechargeInput,
 } from '../validators/payment.validator';
@@ -94,9 +95,9 @@ export const verifyRecharge = asyncHandler(async (req: Request, res: Response) =
 
 /** GET /payments */
 export const listPayments = asyncHandler(async (req: Request, res: Response) => {
-  const { page, limit } = req.query as unknown as ListQuery;
+  const { page, limit, ...filters } = req.query as unknown as ListPaymentsQuery;
 
-  const result = await paymentService.listPayments(requireUser(req), page, limit);
+  const result = await paymentService.listPayments(requireUser(req), page, limit, filters);
 
   sendSuccess(res, result, 'Payments retrieved');
 });

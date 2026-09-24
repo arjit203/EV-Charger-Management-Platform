@@ -3,6 +3,7 @@ import { Router } from 'express';
 import {
   getActiveSession,
   getConnectorForCharging,
+  listStationConnectorsForCharging,
   getSessionById,
   listSessionReadings,
   listSessions,
@@ -14,7 +15,7 @@ import { authorize } from '../middlewares/role.middleware';
 import { validateBody, validateParams, validateQuery } from '../middlewares/validate.middleware';
 import { ROLES } from '../constants/roles';
 import {
-  connectorIdParamSchema,
+  connectorIdParamSchema, stationIdParamSchema,
   listSessionsQuerySchema,
   readingsQuerySchema,
   sessionIdParamSchema,
@@ -59,6 +60,22 @@ router.get(
   authorize(...ALL_ROLES),
   validateParams(connectorIdParamSchema),
   getConnectorForCharging,
+);
+
+/**
+ * Every plug at one station.
+ *
+ * The map answers "where can I charge"; this answers "which plug, here". Without it the
+ * journey had a hole at the last step — a driver could find a station and still have no
+ * way to reach a specific connector short of being handed its id.
+ *
+ * Same view model as the single lookup above, so one screen can render either.
+ */
+router.get(
+  '/stations/:stationId/connectors',
+  authorize(...ALL_ROLES),
+  validateParams(stationIdParamSchema),
+  listStationConnectorsForCharging,
 );
 
 /* -------------------------------- sessions -------------------------------- */

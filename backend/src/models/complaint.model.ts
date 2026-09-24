@@ -18,13 +18,35 @@
 import { Schema, model, type HydratedDocument, type Model, type Types } from 'mongoose';
 
 import {
+  COMPLAINT_ACTORS,
   COMPLAINT_CATEGORIES,
   COMPLAINT_PRIORITIES,
   COMPLAINT_STATUSES,
+  type ComplaintActor,
   type ComplaintCategory,
   type ComplaintPriority,
   type ComplaintStatus,
 } from '../constants/complaint';
+
+/**
+ * One status change. Appended, never edited — the timeline both the driver and staff read.
+ *
+ * WHY THIS EXISTS. Once a complaint can be reopened, `resolution` / `resolvedAt` describe only the
+ * LATEST attempt. Without a history, reopening would silently erase what staff said the first
+ * time, and a payment dispute would lose the record of an earlier decision. Help desks keep this
+ * as a ticket timeline for exactly that reason.
+ */
+export interface ComplaintHistoryEntry {
+  from: ComplaintStatus;
+  to: ComplaintStatus;
+  /** Role at the time, or `system` for the auto-close sweep. */
+  byRole: ComplaintActor;
+  /** Null for `system`. */
+  byUserId: Types.ObjectId | null;
+  /** The resolution, the reopen reason, or the close note — whatever explains the move. */
+  note: string | null;
+  at: Date;
+}
 
 export interface IComplaint {
   /** The reporter. Always from the verified token, never from a request body. */
@@ -63,6 +85,13 @@ export interface IComplaint {
   resolvedBy: Types.ObjectId | null;
   resolvedAt: Date | null;
 
+  /** Every status change, oldest first. */
+  history: ComplaintHistoryEntry[];
+  /** How many times the driver or an admin has reopened it. A number staff can sort on. */
+  reopenCount: number;
+  /** The closed complaint this one follows up, when a problem came back after closure. */
+  followUpOf: Types.ObjectId | null;
+
   createdAt: Date;
   updatedAt: Date;
 }
@@ -91,6 +120,24 @@ const complaintSchema = new Schema<IComplaint, ComplaintModel>(
     resolution: { type: String, trim: true, maxlength: 2000, default: null },
     resolvedBy: { type: Schema.Types.ObjectId, ref: 'User', default: null },
     resolvedAt: { type: Date, default: null },
+    history: {
+      type: [
+        new Schema<ComplaintHistoryEntry>(
+          {
+            from: { type: String, enum: COMPLAINT_STATUSES, required: true },
+            to: { type: String, enum: COMPLAINT_STATUSES, required: true },
+            byRole: { type: String, enum: COMPLAINT_ACTORS, required: true },
+            byUserId: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+            note: { type: String, trim: true, maxlength: 2000, default: null },
+            at: { type: Date, required: true },
+          },
+          { _id: false },
+        ),
+      ],
+      default: [],
+    },
+    reopenCount: { type: Number, required: true, default: 0, min: 0 },
+    followUpOf: { type: Schema.Types.ObjectId, ref: 'Complaint', default: null },
   },
   { timestamps: true },
 );
@@ -109,6 +156,15 @@ complaintSchema.index({ companyId: 1, status: 1, createdAt: -1 });
 
 /** "Is there an open dispute about this session?" — asked when settling or investigating. */
 complaintSchema.index({ chargingSessionId: 1 });
+
+/**
+ * The auto-close sweep: "resolved, and resolved long enough ago". Partial, so it indexes only the
+ * handful of complaints sitting in `resolved` rather than every ticket ever filed.
+ */
+complaintSchema.index(
+  { resolvedAt: 1 },
+  { partialFilterExpression: { status: 'resolved' }, name: 'resolved_awaiting_close' },
+);
 
 export const Complaint = model<IComplaint, ComplaintModel>('Complaint', complaintSchema);
 
@@ -131,8 +187,24 @@ export interface PublicComplaint {
   resolution: string | null;
   resolvedBy: string | null;
   resolvedAt: string | null;
+  history: PublicComplaintHistoryEntry[];
+  reopenCount: number;
+  followUpOf: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * The public history entry carries the ROLE, not the user id. A driver needs to know "support
+ * resolved this", not which staff member's account did it; staff can still find the person
+ * through `resolvedBy` on the complaint itself.
+ */
+export interface PublicComplaintHistoryEntry {
+  from: ComplaintStatus;
+  to: ComplaintStatus;
+  byRole: ComplaintActor;
+  note: string | null;
+  at: string;
 }
 
 export function toPublicComplaint(complaint: ComplaintDocument): PublicComplaint {
@@ -152,6 +224,15 @@ export function toPublicComplaint(complaint: ComplaintDocument): PublicComplaint
     resolution: complaint.resolution,
     resolvedBy: complaint.resolvedBy ? String(complaint.resolvedBy) : null,
     resolvedAt: complaint.resolvedAt ? complaint.resolvedAt.toISOString() : null,
+    history: (complaint.history ?? []).map((entry) => ({
+      from: entry.from,
+      to: entry.to,
+      byRole: entry.byRole,
+      note: entry.note,
+      at: entry.at.toISOString(),
+    })),
+    reopenCount: complaint.reopenCount ?? 0,
+    followUpOf: complaint.followUpOf ? String(complaint.followUpOf) : null,
     createdAt: complaint.createdAt.toISOString(),
     updatedAt: complaint.updatedAt.toISOString(),
   };

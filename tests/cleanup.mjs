@@ -15,7 +15,7 @@ const db = mongoose.connection.db;
 console.log('database:', db.databaseName);
 
 const testUserEmail = /@test\.local$/;
-const testCompanyName = /^(M[0-9]{1,2} |Test |E2E|Check |Probe |Alpha |Beta |Scope |Zeta |Demo Test|Recon |SEC |INT |FAIL |PROBE|Reused code|Livanto Green [0-9]|Sharma Energy [0-9])/;
+const testCompanyName = /^(M[0-9]{1,2} |Test |E2E|Check |Probe |Alpha |Beta |Scope |Zeta |Demo Test|Recon |SEC |INT |FAIL |PROBE|Reused code|Fault Co [0-9]|Livanto Green [0-9]|Sharma Energy [0-9])/;
 const testStationCode = /^(S[0-9]|M1[3-9]|MAP-|RC|SEC|INT|GHO|DUP|CRX|TRSP|FAIL-|P8-|E2E|E8-|MC-|PRB-|ST-|SC-|TEST)/;
 const testChargerCode = /^(C[0-9]|M1[3-9]|MAP-|RCC|SECC|INTC|GHOC|CRX|TRSPC|FAILC|E2EC-|E8C-|PRBC-|CH-|TEST)/;
 

@@ -9,7 +9,7 @@
 
 import { z } from 'zod';
 
-import { MAX_MAP_STATIONS, STATION_STATUSES } from '../constants/station';
+import { MAX_MAP_STATIONS, MAX_NEAR_RADIUS_KM, STATION_STATUSES } from '../constants/station';
 
 const objectId = z
   .string()
@@ -133,8 +133,25 @@ export const publicStationsQuerySchema = z
     city: z.string().trim().min(1).max(100).optional(),
     search: z.string().trim().min(1).max(150).optional(),
     limit: z.coerce.number().int().min(1).max(MAX_MAP_STATIONS).optional(),
+
+    /**
+     * "Near me". The driver's position is used for this one query and never stored. The
+     * frontend rounds it to ~100 m before sending — plenty for finding a charger, and it keeps
+     * a precise home address out of access logs.
+     */
+    lat: z.coerce.number().min(-90).max(90).optional(),
+    lng: z.coerce.number().min(-180).max(180).optional(),
+    radiusKm: z.coerce.number().min(1).max(MAX_NEAR_RADIUS_KM).optional(),
   })
-  .strict();
+  .strict()
+  .refine((q) => (q.lat === undefined) === (q.lng === undefined), {
+    message: 'Send both lat and lng, or neither.',
+    path: ['lng'],
+  })
+  .refine((q) => q.radiusKm === undefined || q.lat !== undefined, {
+    message: 'radiusKm needs a location (lat and lng).',
+    path: ['radiusKm'],
+  });
 
 export type MapStationsQuery = z.infer<typeof mapStationsQuerySchema>;
 export type PublicStationsQuery = z.infer<typeof publicStationsQuerySchema>;

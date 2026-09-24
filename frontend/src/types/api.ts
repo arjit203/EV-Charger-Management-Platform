@@ -377,6 +377,12 @@ export interface ChargingSession {
   chargerId: string;
   connectorId: string;
   connectorNumber: number;
+  /** AC or DC, as the charger was when the session started. Null on very old sessions. */
+  chargerType: ChargerType | null;
+  /** The plug used, as it was when the session started. Null on very old sessions. */
+  connectorType: ConnectorType | null;
+  /** Only present for the platform admin, who sees every company's sessions in one list. */
+  companyName?: string | null;
   transactionId: number | null;
   status: SessionStatus;
   idTag: string;
@@ -465,6 +471,11 @@ export interface ReadingsPayload {
 
 export interface ConnectorChargingPayload {
   connector: ConnectorChargingView;
+}
+
+/** Every plug at one station — same view model, so one component renders either. */
+export interface StationConnectorsPayload {
+  connectors: ConnectorChargingView[];
 }
 
 /* -------------------------------------------------------------------------- */
@@ -626,8 +637,24 @@ export interface Complaint {
   resolution: string | null;
   resolvedBy: string | null;
   resolvedAt: string | null;
+  /** Every status change, oldest first. */
+  history: ComplaintHistoryEntry[];
+  reopenCount: number;
+  /** The closed complaint this one follows up. */
+  followUpOf: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/** Who made a status change. `system` is the automatic close after the reopen window. */
+export type ComplaintActor = 'driver' | 'operator' | 'cpo_admin' | 'super_admin' | 'system';
+
+export interface ComplaintHistoryEntry {
+  from: ComplaintStatus;
+  to: ComplaintStatus;
+  byRole: ComplaintActor;
+  note: string | null;
+  at: string;
 }
 
 /**
@@ -855,6 +882,8 @@ export interface PublicMapStation extends StationAvailability {
   latitude: number;
   longitude: number;
   status: StationStatus;
+  /** Straight-line km from the driver — only on a "near me" search. */
+  distanceKm?: number;
 }
 
 /** What both map endpoints return. `truncated` says the cap clipped the view. */

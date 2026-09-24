@@ -131,8 +131,18 @@ export function getMapStations(
  * No `status` and no `companyId` parameter exist here, matching the backend: the endpoint
  * serves active stations only, and never reveals which company owns one.
  */
+export interface NearParams {
+  lat: number;
+  lng: number;
+  radiusKm?: number;
+}
+
+/**
+ * Driver discovery. With `near`, the server returns only stations within the radius, nearest
+ * first, each with `distanceKm`.
+ */
 export function getPublicStations(
-  params: Pick<MapStationsParams, 'search' | 'city' | 'limit'> = {},
+  params: Pick<MapStationsParams, 'search' | 'city' | 'limit'> & Partial<NearParams> = {},
 ): Promise<MapStationsPayload<PublicMapStation>> {
   return apiRequest<MapStationsPayload<PublicMapStation>>(`/stations/public${mapQuery(params)}`, {
     cache: 'no-store',

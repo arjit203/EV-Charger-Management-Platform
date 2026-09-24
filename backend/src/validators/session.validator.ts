@@ -11,6 +11,8 @@
  */
 
 import { z } from 'zod';
+import { CHARGER_TYPES } from '../constants/charger';
+import { CONNECTOR_TYPES } from '../constants/connector';
 
 import { SESSION_STATUSES } from '../constants/session';
 
@@ -20,6 +22,7 @@ const objectId = z
 
 export const sessionIdParamSchema = z.object({ sessionId: objectId });
 export const connectorIdParamSchema = z.object({ connectorId: objectId });
+export const stationIdParamSchema = z.object({ stationId: objectId });
 
 export const startSessionSchema = z
   .object({
@@ -47,6 +50,10 @@ export const listSessionsQuerySchema = z
     chargerId: objectId.optional(),
     /** Honoured for super_admin only; ignored for everyone else, who is already scoped. */
     companyId: objectId.optional(),
+    /** AC or DC — the charger's power type, snapshotted on the session at start. */
+    chargerType: z.enum(CHARGER_TYPES).optional(),
+    /** The plug standard, snapshotted on the session at start. */
+    connectorType: z.enum(CONNECTOR_TYPES).optional(),
   })
   .strict();
 

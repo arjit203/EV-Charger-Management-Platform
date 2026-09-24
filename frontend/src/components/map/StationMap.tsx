@@ -87,18 +87,40 @@ function buildIcon(station: AnyMapStation, isSelected: boolean): L.DivIcon {
 function MapController({
   stations,
   selectedId,
+  userLocation,
 }: {
   stations: AnyMapStation[];
   selectedId: string | null;
+  userLocation: UserLocation | null;
 }) {
   const map = useMap();
 
   // A stable key for "the same set of stations", so panning is not undone by a re-render.
-  const stationKey = stations.map((station) => station.id).join(',');
+  const stationKey =
+    stations.map((station) => station.id).join(',') +
+    (userLocation ? `@${userLocation.lat},${userLocation.lng}` : '');
   const hasFitted = useRef('');
 
   useEffect(() => {
-    if (stations.length === 0 || hasFitted.current === stationKey) return;
+    if (hasFitted.current === stationKey) return;
+
+    // Near me: frame the driver AND the stations around them, so "where am I relative to
+    // these" is answered at a glance. With nothing nearby, just centre on the driver.
+    if (userLocation) {
+      hasFitted.current = stationKey;
+      const points: [number, number][] = [
+        [userLocation.lat, userLocation.lng],
+        ...stations.map((station): [number, number] => [station.latitude, station.longitude]),
+      ];
+      if (points.length === 1) {
+        map.setView(points[0], 13);
+      } else {
+        map.fitBounds(L.latLngBounds(points), { padding: [40, 40], maxZoom: 15 });
+      }
+      return;
+    }
+
+    if (stations.length === 0) return;
     hasFitted.current = stationKey;
 
     if (stations.length === 1) {
@@ -112,7 +134,7 @@ function MapController({
       L.latLngBounds(stations.map((station) => [station.latitude, station.longitude])),
       { padding: [40, 40], maxZoom: 15 },
     );
-  }, [map, stations, stationKey]);
+  }, [map, stations, stationKey, userLocation]);
 
   useEffect(() => {
     if (!selectedId) return;
@@ -129,13 +151,36 @@ function MapController({
   return null;
 }
 
+export interface UserLocation {
+  lat: number;
+  lng: number;
+}
+
+/** The driver's own position — a distinct blue dot with a halo, like every maps app. */
+const USER_ICON = L.divIcon({
+  className: '',
+  html: `<span aria-label="Your location" title="Your location" style="
+    display:block;width:18px;height:18px;border-radius:9999px;background:#2563eb;
+    border:3px solid #fff;box-shadow:0 0 0 6px rgba(37,99,235,.25),0 1px 4px rgba(0,0,0,.45);
+  "></span>`,
+  iconSize: [18, 18],
+  iconAnchor: [9, 9],
+});
+
 export interface StationMapProps {
   stations: AnyMapStation[];
   selectedId: string | null;
   onSelect: (stationId: string) => void;
+  /** Set when the driver used "near me". Never sent anywhere except the one search. */
+  userLocation?: UserLocation | null;
 }
 
-export default function StationMap({ stations, selectedId, onSelect }: StationMapProps) {
+export default function StationMap({
+  stations,
+  selectedId,
+  onSelect,
+  userLocation = null,
+}: StationMapProps) {
   /*
    * Filtered ONCE here, and memoised on the station list. Everything below this line can
    * assume a usable latitude/longitude, so there is no per-marker defensive check scattered
@@ -158,7 +203,11 @@ export default function StationMap({ stations, selectedId, onSelect }: StationMa
         maxZoom={19}
       />
 
-      <MapController stations={placeable} selectedId={selectedId} />
+      <MapController stations={placeable} selectedId={selectedId} userLocation={userLocation} />
+
+      {userLocation && (
+        <Marker position={[userLocation.lat, userLocation.lng]} icon={USER_ICON} interactive={false} />
+      )}
 
       {placeable.map((station) => (
         <Marker

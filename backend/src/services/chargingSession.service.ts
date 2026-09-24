@@ -26,6 +26,7 @@ import {
 import { MeterReading, toPublicMeterReading, type PublicMeterReading } from '../models/meterReading.model';
 import { Charger } from '../models/charger.model';
 import { Connector } from '../models/connector.model';
+import { Company } from '../models/company.model';
 import { Station } from '../models/station.model';
 import { Vehicle } from '../models/vehicle.model';
 import { ROLES } from '../constants/roles';
@@ -39,6 +40,8 @@ import { ApiError } from '../utils/ApiError';
 import { applyCompanyScope } from '../utils/companyScope';
 import { applyOwnerScope } from '../utils/ownerScope';
 import { logger } from '../utils/logger';
+import { describeSession, sessionRef } from '../utils/logLabels';
+import { formatPaise } from '../utils/money';
 import * as realtime from '../realtime/publisher';
 import * as notify from './notification.service';
 import { sendRemoteStart, sendRemoteStop } from '../ocpp/commands';
@@ -253,6 +256,96 @@ function assessStartability(
   return { canStart: true, reason: null };
 }
 
+/**
+ * Every plug at one station, in the same shape the QR-code lookup returns.
+ *
+ * WHY THIS EXISTS. Until now the only way to reach a connector was to already know its id —
+ * fine for a QR code printed on the plug, useless for a driver looking at a map. The map
+ * could say "3 of 6 available" but could not say WHICH three, so the last step of the journey
+ * had no route: a driver who had found a station still had to be handed an id out of band.
+ *
+ * Same view model as `getConnectorForCharging` on purpose. A driver comparing plugs on a
+ * screen and a driver standing in front of one are asking the same question, and two shapes
+ * for one question is how they drift.
+ *
+ * NOT company-scoped, for the same reason the single lookup is not: public charging is
+ * public. Authentication still applies.
+ */
+export async function listConnectorsForChargingAtStation(
+  stationId: string,
+): Promise<ConnectorChargingView[]> {
+  const station = await Station.findById(stationId);
+  if (!station) throw ApiError.notFound('Station not found.');
+
+  const chargers = await Charger.find({ stationId: station._id });
+  if (chargers.length === 0) return [];
+
+  const connectors = await Connector.find({
+    chargerId: { $in: chargers.map((c) => c._id) },
+  });
+
+  /*
+   * One tariff lookup per COMPANY, not per connector. Every charger at a station belongs to
+   * the same operator in practice, but resolving by company rather than assuming it keeps
+   * this correct if that ever stops being true — and it is still one query either way.
+   */
+  const tariffByCompany = new Map<string, number | null>();
+  for (const companyId of new Set(chargers.map((c) => String(c.companyId)))) {
+    const tariff = await findActiveTariffForCompany(new Types.ObjectId(companyId));
+    tariffByCompany.set(companyId, tariff ? tariff.pricePerKwhPaise : null);
+  }
+
+  const chargerById = new Map(chargers.map((c) => [String(c._id), c]));
+
+  const views: ConnectorChargingView[] = [];
+
+  for (const connector of connectors) {
+    const charger = chargerById.get(String(connector.chargerId));
+    if (!charger) continue;
+
+    const { canStart, reason } = assessStartability(
+      connector.status,
+      charger.status,
+      charger.isOnline,
+      charger.hardwareStatus,
+      charger.faultCode,
+    );
+
+    const pricePerKwhPaise = tariffByCompany.get(String(charger.companyId)) ?? null;
+    const priced = pricePerKwhPaise !== null;
+
+    views.push({
+      connectorId: String(connector._id),
+      connectorNumber: connector.connectorNumber,
+      connectorType: connector.connectorType,
+      status: connector.status,
+      chargerId: String(charger._id),
+      chargerName: charger.name,
+      powerKw: charger.powerKw,
+      isOnline: charger.isOnline,
+      chargerHardwareStatus: charger.hardwareStatus,
+      chargerFaultCode: charger.faultCode ?? null,
+      stationName: station.name,
+      stationAddress: station.address,
+      pricePerKwhPaise,
+      canStart: canStart && priced,
+      unavailableReason: reason ?? (priced ? null : 'This operator has not published a price yet.'),
+    });
+  }
+
+  /*
+   * Startable plugs first, then by charger and plug number. A driver scanning this list wants
+   * the ones they can actually use at the top; the rest still appear, because "why not" is
+   * the next question and hiding them only prompts it.
+   */
+  return views.sort(
+    (a, b) =>
+      Number(b.canStart) - Number(a.canStart) ||
+      a.chargerName.localeCompare(b.chargerName) ||
+      a.connectorNumber - b.connectorNumber,
+  );
+}
+
 /* -------------------------------------------------------------------------- */
 /* Start                                                                      */
 /* -------------------------------------------------------------------------- */
@@ -345,8 +438,8 @@ export async function startSession(
   if (arrears.blocked) {
     logger.warn(
       SCOPE,
-      `Start refused for user ${actor.id}: ${arrears.unpaidSessions} unpaid session(s), ` +
-        `${arrears.outstandingPaise} paise outstanding`,
+      `Start refused for ${actor.email}: ${arrears.unpaidSessions} unpaid session(s), ` +
+        `${formatPaise(arrears.outstandingPaise)} outstanding`,
     );
 
     throw ApiError.conflict(arrears.reason ?? 'Settle your outstanding balance to start charging.', {
@@ -369,6 +462,10 @@ export async function startSession(
       chargerId: charger._id,
       connectorId: connector._id,
       connectorNumber: connector.connectorNumber,
+      // Snapshots of the hardware actually used — a session must still say "DC, CCS2" after
+      // the charger is reconfigured, exactly like the price below.
+      chargerType: charger.chargerType,
+      connectorType: connector.connectorType,
       idTag,
       status: 'initiating',
       requestedAt: new Date(),
@@ -411,11 +508,19 @@ export async function startSession(
     // releases the connector immediately instead of holding it for the full timeout.
     const message = error instanceof Error ? error.message : String(error);
     await markFailed(session, 'StartTimeout', `The charger did not respond: ${message}`);
-    logger.error(SCOPE, `RemoteStart failed for session ${String(session._id)}`, error);
+    logger.error(
+      SCOPE,
+      `Start request got no answer from ${await describeSession(session)} ${sessionRef(session)}`,
+      error,
+    );
     throw ApiError.conflict('The charger did not respond to the start request.');
   }
 
-  logger.info(SCOPE, `Session ${String(session._id)} initiating on ${charger.ocppId}`);
+  logger.info(
+    SCOPE,
+    `Start requested on ${await describeSession(session)} — waiting for the charger to confirm ` +
+      sessionRef(session),
+  );
 
   // The staff dashboard should see a session appear the moment it is requested, not only once
   // the charger confirms - an `initiating` row that never turns active is exactly the thing an
@@ -552,14 +657,22 @@ export async function stopSession(
     }
   } catch (error) {
     if (error instanceof ApiError) throw error;
-    logger.error(SCOPE, `RemoteStop failed for session ${String(session._id)}`, error);
+    logger.error(
+      SCOPE,
+      `Stop request got no answer from ${await describeSession(session)} ${sessionRef(session)}`,
+      error,
+    );
     throw ApiError.conflict('The charger did not respond to the stop request.');
   }
 
   session.status = 'stopping';
   await session.save();
 
-  logger.info(SCOPE, `Session ${String(session._id)} stopping (requested by ${actor.role})`);
+  logger.info(
+    SCOPE,
+    `Stop requested by ${actor.email} (${actor.role}) on ${await describeSession(session)} ` +
+      sessionRef(session),
+  );
 
   realtime.emitSessionStatus(toPublicChargingSession(session));
 
@@ -588,6 +701,10 @@ export async function listSessions(
 
   if (query.active === true) filter.status = { $in: OPEN_SESSION_STATUSES };
 
+  // "AC or DC" and "which plug" are separate questions, answered by separate snapshots.
+  if (query.chargerType) filter.chargerType = query.chargerType;
+  if (query.connectorType) filter.connectorType = query.connectorType;
+
   const scoped = applySessionReadScope(actor, filter);
 
   const page = query.page ?? 1;
@@ -603,8 +720,24 @@ export async function listSessions(
     ChargingSession.countDocuments(scoped),
   ]);
 
+  /*
+   * The platform admin sees every company's sessions in one list, so each row needs to say whose
+   * it is. One query for the distinct companies on this page — not per row, and never for a
+   * scoped caller, who can only ever see their own company.
+   */
+  let companyNames: Map<string, string> | null = null;
+  if (actor.role === ROLES.SUPER_ADMIN && items.length > 0) {
+    const companies = await Company.find({ _id: { $in: [...new Set(items.map((s) => String(s.companyId)))] } })
+      .select('name')
+      .lean();
+    companyNames = new Map(companies.map((c) => [String(c._id), c.name]));
+  }
+
   return {
-    items: items.map(toPublicChargingSession),
+    items: items.map((session) => ({
+      ...toPublicChargingSession(session),
+      ...(companyNames ? { companyName: companyNames.get(String(session.companyId)) ?? null } : {}),
+    })),
     page,
     limit,
     total,

@@ -24,6 +24,7 @@ import Razorpay from 'razorpay';
 
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
+import { formatPaise } from '../utils/money';
 
 const SCOPE = 'payments';
 
@@ -74,7 +75,10 @@ export async function createOrder(
     // Deterministic, and shaped like a real Razorpay id so nothing downstream needs a special
     // case. `stub_` makes it unmistakable in a database.
     const orderId = `order_stub${crypto.randomBytes(8).toString('hex')}`;
-    logger.warn(SCOPE, `Razorpay not configured — stub order ${orderId} for ${amountPaise} paise`);
+    logger.warn(
+      SCOPE,
+      `Razorpay keys aren't set, so this ${formatPaise(amountPaise)} top-up uses a fake test order ${orderId} — no real money moves`,
+    );
     return { orderId, amountPaise, keyId: 'rzp_test_stub' };
   }
 
@@ -87,7 +91,7 @@ export async function createOrder(
     payment_capture: true,
   });
 
-  logger.info(SCOPE, `Razorpay order ${order.id} created for ${amountPaise} paise`);
+  logger.info(SCOPE, `Created Razorpay order ${order.id} for a ${formatPaise(amountPaise)} wallet top-up`);
 
   return { orderId: order.id, amountPaise, keyId: env.razorpayKeyId };
 }

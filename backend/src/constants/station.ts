@@ -34,3 +34,10 @@ export const CPO_SETTABLE_STATION_STATUSES: StationStatus[] = ['active', 'inacti
  * without importing each other.
  */
 export const MAX_MAP_STATIONS = 500;
+
+/**
+ * "Near me" search radius. 25 km covers a city; 200 km is a highway trip's worth of range
+ * anxiety. Beyond that, "near" stops meaning anything and the plain list is the better tool.
+ */
+export const DEFAULT_NEAR_RADIUS_KM = 25;
+export const MAX_NEAR_RADIUS_KM = 200;

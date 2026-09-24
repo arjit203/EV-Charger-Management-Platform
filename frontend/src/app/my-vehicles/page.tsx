@@ -134,7 +134,7 @@ function MyVehiclesContent() {
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-xs font-medium uppercase tracking-widest text-neutral-500">
-            EV-CMS &middot; Module 3
+            EV-CMS
           </p>
           <h1 className="mt-1 text-2xl font-semibold">My vehicles</h1>
           <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">

@@ -7,8 +7,9 @@
  * isolation — and because the nested API shape is what makes the server verify the
  * Company → Station → Charger chain on every connector call.
  *
- * Module 6 adds the OCPP section below: live connectivity and remote start/stop. There is
- * still no live streaming or meter charting — those need Socket.IO, which is Module 8.
+ * The OCPP section below is READ-ONLY diagnostics plus token regeneration. It deliberately has
+ * no start/stop buttons: since Module 7 a charge only starts through a driver's session (so it
+ * is always billed), and staff stop a charge from its session page.
  */
 
 import { useCallback, useState } from 'react';
@@ -28,8 +29,6 @@ import {
   getChargerConnection,
   listConnectors,
   regenerateChargerToken,
-  remoteStart,
-  remoteStop,
   setChargerStatus,
   setConnectorStatus,
   updateCharger,
@@ -71,42 +70,24 @@ function connectorTone(status: ConnectorStatus) {
 /* ----------------------------------------------------------------- OCPP -- */
 
 /**
- * Live connectivity and the Module 6 remote commands.
+ * Live connectivity, plus regenerating the charger's connection token.
  *
  * Values do NOT update by themselves — this module has no browser real-time channel, so you
  * press Refresh. Module 8 adds Socket.IO for that. The two real-time systems stay separate:
  * the charger speaks raw WebSocket/OCPP to the gateway, the browser will speak Socket.IO to
  * the backend.
  */
-function OcppSection({ charger, canCommand }: { charger: Charger; canCommand: boolean }) {
+function OcppSection({ charger, canManage }: { charger: Charger; canManage: boolean }) {
   const searchParams = useSearchParams();
   const load = useCallback(() => getChargerConnection(charger.id), [charger.id]);
   const { state, reload } = useAsyncData(load);
 
   // Shown once after creation, handed over in the URL by the create page.
   const [issuedToken, setIssuedToken] = useState<string | null>(searchParams.get('newToken'));
-  const [idTag, setIdTag] = useState('TESTTAG-0001');
-  const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
 
   const connection = state.status === 'ok' ? state.data : null;
-
-  async function run(action: 'start' | 'stop') {
-    setIsBusy(true);
-    setError(null);
-    setMessage(null);
-    try {
-      const result =
-        action === 'start' ? await remoteStart(charger.id, 1, idTag) : await remoteStop(charger.id);
-      setMessage(result.accepted ? 'Charger accepted the command.' : 'Charger rejected the command.');
-      await reload();
-    } catch (caught) {
-      setError(toMessage(caught));
-    } finally {
-      setIsBusy(false);
-    }
-  }
 
   async function issueToken() {
     setIsBusy(true);
@@ -194,11 +175,6 @@ function OcppSection({ charger, canCommand }: { charger: Charger; canCommand: bo
           {error}
         </p>
       ) : null}
-      {message ? (
-        <p className="mt-3 rounded-lg bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-400">
-          {message}
-        </p>
-      ) : null}
 
       <dl className="mt-4 grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">
         <dt className="text-neutral-500">Gateway</dt>
@@ -217,35 +193,9 @@ function OcppSection({ charger, canCommand }: { charger: Charger; canCommand: bo
         </dd>
       </dl>
 
-      {canCommand ? (
-        <div className="mt-4 space-y-3 border-t border-neutral-200 pt-4 dark:border-neutral-800">
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="min-w-[12rem] flex-1">
-              <FormField
-                label="idTag"
-                name="idTag"
-                hint="Stands in for an RFID card."
-                value={idTag}
-                onChange={(e) => setIdTag(e.target.value)}
-              />
-            </div>
-            <button
-              type="button"
-              onClick={() => void run('start')}
-              disabled={isBusy || !charger.isOnline}
-              className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-            >
-              Remote start
-            </button>
-            <button
-              type="button"
-              onClick={() => void run('stop')}
-              disabled={isBusy || !charger.isOnline}
-              className="rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-            >
-              Remote stop
-            </button>
-          </div>
+      <div className="mt-4 space-y-3 border-t border-neutral-200 pt-4 dark:border-neutral-800">
+        {/* Admins only — the backend refuses anyone else, so an operator saw a button that 403'd. */}
+        {canManage ? (
           <button
             type="button"
             onClick={() => void issueToken()}
@@ -254,12 +204,16 @@ function OcppSection({ charger, canCommand }: { charger: Charger; canCommand: bo
           >
             Regenerate connection token
           </button>
-          <p className="text-xs text-neutral-500">
-            These are the Module 6 test surface. The driver-facing start/stop, which also creates a
-            charging session, arrives in Module 7.
-          </p>
-        </div>
-      ) : null}
+        ) : null}
+        <p className="text-xs text-neutral-500">
+          Charges are started by drivers from their app, so every charge has a session and a
+          bill. To stop a charge in progress, open it from{' '}
+          <Link href="/sessions" className="underline underline-offset-2">
+            Charging sessions
+          </Link>{' '}
+          and press Stop.
+        </p>
+      </div>
     </section>
   );
 }
@@ -409,8 +363,8 @@ function ConnectorSection({ chargerId, canManage }: { chargerId: string; canMana
       )}
 
       <p className="mt-4 text-xs text-neutral-500">
-        Statuses are set manually here. From Module 6 the OCPP gateway will drive them from
-        what the hardware actually reports.
+        The charger reports these statuses itself over OCPP. A manual change here only lasts
+        until the charger next reports its real status.
       </p>
     </section>
   );
@@ -425,9 +379,6 @@ function ChargerDetails({ charger, onChanged }: { charger: Charger; onChanged: (
   const [isBusy, setIsBusy] = useState(false);
 
   const canManage = user?.role === 'super_admin' || user?.role === 'cpo_admin';
-  // Operators may COMMAND a charger even though they cannot reconfigure it — Module 6 is
-  // where their first write lands, because operating hardware is the role's actual job.
-  const canCommand = canManage || user?.role === 'operator';
 
   async function changeStatus(status: ChargerStatus) {
     setIsBusy(true);
@@ -539,7 +490,7 @@ function ChargerDetails({ charger, onChanged }: { charger: Charger; onChanged: (
         )}
       </section>
 
-      <OcppSection charger={charger} canCommand={canCommand} />
+      <OcppSection charger={charger} canManage={canManage} />
 
       <ConnectorSection chargerId={charger.id} canManage={canManage} />
     </>

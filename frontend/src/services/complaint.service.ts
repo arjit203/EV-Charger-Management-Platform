@@ -21,10 +21,12 @@ export interface CreateComplaintInput {
   category: ComplaintCategory;
   subject: string;
   description: string;
-  priority?: ComplaintPriority;
+  // No priority: it is internal triage, set by the server and adjusted by staff.
   /** The anchor. At most one — the server rejects both together. */
   chargingSessionId?: string;
   chargerId?: string;
+  /** A follow-up to one of your own CLOSED complaints. Inherits its anchor — send no other. */
+  followUpOf?: string;
 }
 
 export interface ListComplaintsParams {
@@ -92,6 +94,23 @@ export async function setComplaintStatus(
   const { complaint } = await apiRequest<ComplaintPayload>(`/complaints/${complaintId}/status`, {
     method: 'PATCH',
     body: { status, ...(resolution ? { resolution } : {}) },
+  });
+  return complaint;
+}
+
+/** The driver agrees the fix worked: resolved -> closed. */
+export async function confirmComplaint(complaintId: string): Promise<Complaint> {
+  const { complaint } = await apiRequest<ComplaintPayload>(`/complaints/${complaintId}/confirm`, {
+    method: 'POST',
+  });
+  return complaint;
+}
+
+/** The driver says it is still broken: resolved -> open. A reason is required. */
+export async function reopenComplaint(complaintId: string, reason: string): Promise<Complaint> {
+  const { complaint } = await apiRequest<ComplaintPayload>(`/complaints/${complaintId}/reopen`, {
+    method: 'POST',
+    body: { reason },
   });
   return complaint;
 }

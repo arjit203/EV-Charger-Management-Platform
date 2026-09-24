@@ -37,12 +37,8 @@ export const createComplaintSchema = z
       .trim()
       .min(10, 'Describe what happened')
       .max(2000, 'Keep the description under 2000 characters'),
-    /**
-     * The driver's own sense of urgency. Accepted because nothing happens faster for being
-     * called `high` — no SLA, no routing, no escalation — so there is nothing to win by lying.
-     * Staff can adjust it afterwards; the driver cannot.
-     */
-    priority: z.enum(COMPLAINT_PRIORITIES).optional(),
+    // No `priority`: it is internal triage, set by the system and adjusted by staff. `.strict()`
+    // turns a driver sending one into a 422 rather than silently ignoring it.
 
     /**
      * AT MOST ONE ANCHOR. Everything else about the complaint's place in the world is derived
@@ -50,8 +46,18 @@ export const createComplaintSchema = z
      */
     chargingSessionId: objectId.optional(),
     chargerId: objectId.optional(),
+
+    /**
+     * A follow-up to one of the driver's own CLOSED complaints. The anchor is inherited from it,
+     * so it cannot be combined with one.
+     */
+    followUpOf: objectId.optional(),
   })
   .strict()
+  .refine((data) => !(data.followUpOf && (data.chargingSessionId || data.chargerId)), {
+    message: 'A follow-up inherits the session or charger from the original complaint — do not send one.',
+    path: ['followUpOf'],
+  })
   .refine((data) => !(data.chargingSessionId && data.chargerId), {
     message:
       'Provide either a charging session or a charger, not both — the charger is derived from the session.',
@@ -83,6 +89,17 @@ export const complaintStatusSchema = z
   })
   .strict();
 
+/** The driver disputing a resolution. The reason is what staff start from, so it is required. */
+export const reopenComplaintSchema = z
+  .object({
+    reason: z
+      .string()
+      .trim()
+      .min(10, 'Tell support what is still wrong (at least 10 characters)')
+      .max(2000, 'Keep it under 2000 characters'),
+  })
+  .strict();
+
 export const listComplaintsQuerySchema = z
   .object({
     page: z.coerce.number().int().min(1).optional(),
@@ -99,3 +116,4 @@ export type CreateComplaintInput = z.infer<typeof createComplaintSchema>;
 export type UpdateComplaintInput = z.infer<typeof updateComplaintSchema>;
 export type ComplaintStatusInput = z.infer<typeof complaintStatusSchema>;
 export type ListComplaintsQuery = z.infer<typeof listComplaintsQuerySchema>;
+export type ReopenComplaintInput = z.infer<typeof reopenComplaintSchema>;

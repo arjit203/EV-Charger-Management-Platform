@@ -13,6 +13,7 @@ import { useCallback, useState } from 'react';
 import Link from 'next/link';
 
 import { RequireAuth } from '@/components/RequireAuth';
+import { CompanyFilter } from '@/components/filters';
 import { StatusBadge } from '@/components/StatusBadge';
 import { useAuth } from '@/context/AuthContext';
 import { useAsyncData } from '@/hooks/useAsyncData';
@@ -46,6 +47,7 @@ function UserListContent() {
   const [search, setSearch] = useState('');
   const [role, setRole] = useState<Role | ''>('');
   const [status, setStatus] = useState<UserStatus | ''>('');
+  const [companyId, setCompanyId] = useState('');
 
   const load = useCallback(
     () =>
@@ -53,9 +55,10 @@ function UserListContent() {
         search: search || undefined,
         role: role || undefined,
         status: status || undefined,
+        companyId: companyId || undefined,
         limit: 50,
       }),
-    [search, role, status],
+    [search, role, status, companyId],
   );
 
   const { state } = useAsyncData(load);
@@ -66,7 +69,7 @@ function UserListContent() {
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-xs font-medium uppercase tracking-widest text-neutral-500">
-            EV-CMS &middot; Module 3
+            EV-CMS
           </p>
           <h1 className="mt-1 text-2xl font-semibold">Users</h1>
           <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
@@ -107,6 +110,7 @@ function UserListContent() {
           <option value="active">Active</option>
           <option value="suspended">Suspended</option>
         </select>
+        <CompanyFilter value={companyId} onChange={setCompanyId} />
       </div>
 
       {state.status === 'loading' ? (

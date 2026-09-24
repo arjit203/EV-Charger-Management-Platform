@@ -10,6 +10,8 @@
 import { Types, type QueryFilter } from 'mongoose';
 
 import { Charger, toPublicCharger, type ICharger, type PublicCharger, type ChargerDocument } from '../models/charger.model';
+import { DC_ONLY_CONNECTOR_TYPES } from '../constants/connector';
+import { Connector } from '../models/connector.model';
 import { Station, type StationDocument } from '../models/station.model';
 import { ROLES } from '../constants/roles';
 import type { ChargerStatus } from '../constants/charger';
@@ -154,6 +156,18 @@ export async function listChargers(
   if (query.stationId) base.stationId = new Types.ObjectId(query.stationId);
   if (query.status) base.status = query.status;
   if (query.chargerType) base.chargerType = query.chargerType;
+  if (query.isOnline !== undefined) base.isOnline = query.isOnline;
+
+  /*
+   * "Chargers that have a CCS2 plug". The plug lives on the Connector, so this resolves the
+   * matching charger ids first. Connectors are few per charger, and the list is company-scoped
+   * again below, so this cannot widen what the caller sees.
+   */
+  if (query.connectorType) {
+    const ids = await Connector.distinct('chargerId', { connectorType: query.connectorType });
+    base._id = { $in: ids };
+  }
+
   if (query.manufacturer) {
     base.manufacturer = { $regex: `^${escapeRegex(query.manufacturer)}$`, $options: 'i' };
   }
@@ -216,6 +230,21 @@ export async function updateCharger(
     }).select('_id');
     if (clash) {
       throw ApiError.conflict('A charger with this code already exists at this station.');
+    }
+  }
+
+  // Switching a charger to AC must not strand DC-only plugs on it (see DC_ONLY_CONNECTOR_TYPES).
+  if (input.chargerType === 'AC' && charger.chargerType !== 'AC') {
+    const dcPlug = await Connector.findOne({
+      chargerId: charger._id,
+      connectorType: { $in: DC_ONLY_CONNECTOR_TYPES },
+    }).select('connectorNumber connectorType');
+
+    if (dcPlug) {
+      throw ApiError.validation(
+        `Connector ${dcPlug.connectorNumber} is ${dcPlug.connectorType}, a DC-only plug. Change or remove it before marking this charger AC.`,
+        { field: 'chargerType' },
+      );
     }
   }
 

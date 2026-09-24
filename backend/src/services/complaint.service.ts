@@ -16,8 +16,14 @@ import { Complaint, toPublicComplaint, type ComplaintDocument, type PublicCompla
 import { ChargingSession } from '../models/chargingSession.model';
 import { Charger } from '../models/charger.model';
 import {
+  ADMIN_ONLY_TRANSITIONS,
   ALLOWED_TRANSITIONS,
-  CONCLUDING_TRANSITIONS,
+  AUTO_CLOSE_AFTER_MS,
+  COMPLAINT_SWEEP_INTERVAL_MS,
+  DEFAULT_PRIORITY_BY_CATEGORY,
+  type ComplaintActor,
+  type ComplaintCategory,
+  type ComplaintPriority,
   type ComplaintStatus,
 } from '../constants/complaint';
 import { ROLES } from '../constants/roles';
@@ -164,32 +170,89 @@ async function resolveAnchor(
 /* -------------------------------------------------------------------------- */
 
 /**
+ * The starting priority, from facts the platform already has — never from the reporter.
+ *
+ * Two facts can raise it above the category default:
+ *   - the anchored charge actually FAILED: this driver may be stuck at the charger now
+ *   - it is a FOLLOW-UP: the problem came back after support said it was fixed
+ *
+ * Staff can change it either way. This is a sensible first guess, not a verdict.
+ */
+async function initialPriority(
+  category: ComplaintCategory,
+  chargingSessionId: Types.ObjectId | null,
+  isFollowUp: boolean,
+): Promise<ComplaintPriority> {
+  if (isFollowUp) return 'high';
+
+  if (category === 'session_issue' && chargingSessionId) {
+    const session = await ChargingSession.findById(chargingSessionId).select('status').lean();
+    if (session?.status === 'failed') return 'high';
+  }
+
+  return DEFAULT_PRIORITY_BY_CATEGORY[category];
+}
+
+/**
  * File a complaint.
  *
  * `userId` comes from the verified token. `companyId` and the resource ids come from the anchor.
- * The only things the client actually decides are the category, the words, and the priority.
+ * The only things the client actually decides are the category and the words. Priority is
+ * triaged by the system — see `initialPriority`.
  */
 export async function createComplaint(
   actor: AuthUser,
   input: CreateComplaintInput,
 ): Promise<PublicComplaint> {
-  const anchor = await resolveAnchor(actor, input);
+  let anchor: ResolvedAnchor;
+  let followUpOf: Types.ObjectId | null = null;
+
+  if (input.followUpOf) {
+    /*
+     * A FOLLOW-UP to a closed complaint — "it broke again". The standard help-desk answer to a
+     * problem that returns after closure: a new ticket linked to the old one, so the closed
+     * record stays exactly as concluded while staff can still see the history.
+     *
+     * Owner-scoped like every driver read, so a driver cannot link to someone else's ticket. The
+     * anchor is INHERITED from the original — same session or charger, derived server-side, never
+     * resubmitted — which keeps Module 11's "at most one anchor, never trusted" rule intact.
+     */
+    const original = await assertComplaintInScope(actor, input.followUpOf);
+
+    if (original.status !== 'closed') {
+      throw ApiError.conflict(
+        original.status === 'resolved'
+          ? 'That complaint is resolved but not closed yet — reopen it instead of filing a new one.'
+          : 'That complaint is still open. Add to it instead of filing a new one.',
+      );
+    }
+
+    anchor = {
+      companyId: original.companyId,
+      chargingSessionId: original.chargingSessionId,
+      chargerId: original.chargerId,
+      stationId: original.stationId,
+      connectorId: original.connectorId,
+    };
+    followUpOf = original._id;
+  } else {
+    anchor = await resolveAnchor(actor, input);
+  }
 
   const complaint = await Complaint.create({
     userId: new Types.ObjectId(actor.id),
     ...anchor,
+    followUpOf,
     category: input.category,
     subject: input.subject,
     description: input.description,
-    // The driver's own sense of urgency. Safe to accept because nothing is faster for being
-    // called `high` — no SLA, no routing, no escalation is attached to it.
-    priority: input.priority ?? 'medium',
+    priority: await initialPriority(input.category, anchor.chargingSessionId, followUpOf !== null),
     status: 'open',
   });
 
   logger.info(
     SCOPE,
-    `Complaint ${String(complaint._id)} opened (${input.category}) by ${actor.email}`,
+    `${actor.email} opened a ${input.category} complaint: "${input.subject}" [complaint ${String(complaint._id)}]`,
   );
 
   void notify.complaintCreated(complaint);
@@ -297,8 +360,9 @@ export async function getComplaintById(
  * ticket is an audit record — letting the reporter retroactively rewrite what they reported
  * would destroy the only reason to keep it after it closes.
  *
- * `priority` is staff-only AFTER creation. A driver sets the initial value and then cannot
- * change it, so the record of how urgent they said it was stays intact.
+ * `priority` is internal triage. The system sets the starting value; ANY staff member can
+ * change it, because triage is exactly what frontline support does — in every help desk it is
+ * the first thing the agent who picks a ticket up adjusts.
  */
 export async function updateComplaint(
   actor: AuthUser,
@@ -311,12 +375,7 @@ export async function updateComplaint(
     throw ApiError.conflict('This complaint is closed and can no longer be edited.');
   }
 
-  if (input.priority !== undefined) {
-    if (actor.role === ROLES.OPERATOR) {
-      throw ApiError.forbidden('Only an administrator can change a complaint priority.');
-    }
-    complaint.priority = input.priority;
-  }
+  if (input.priority !== undefined) complaint.priority = input.priority;
 
   // Interim notes. An operator can record what they found without concluding the ticket.
   if (input.resolution !== undefined) complaint.resolution = input.resolution;
@@ -326,16 +385,59 @@ export async function updateComplaint(
   return toPublicComplaint(complaint);
 }
 
+/* -------------------------------------------------------------------------- */
+/* Lifecycle                                                                  */
+/* -------------------------------------------------------------------------- */
+
 /**
- * Move a complaint through its lifecycle.
+ * Apply one status change and append it to the history. The ONLY place `status` is written after
+ * creation, so no path can move a complaint without leaving a timeline entry.
+ */
+function applyTransition(
+  complaint: ComplaintDocument,
+  to: ComplaintStatus,
+  by: { role: ComplaintActor; userId: string | null },
+  note: string | null,
+): ComplaintStatus {
+  const from = complaint.status;
+
+  if (to === 'resolved') {
+    complaint.resolvedBy = by.userId ? new Types.ObjectId(by.userId) : null;
+    complaint.resolvedAt = new Date();
+  }
+
+  if (from === 'resolved' && to === 'open') {
+    // The resolution was disputed. It is no longer "the" resolution — the history keeps it.
+    complaint.resolvedBy = null;
+    complaint.resolvedAt = null;
+    complaint.reopenCount += 1;
+  }
+
+  complaint.status = to;
+  complaint.history.push({
+    from,
+    to,
+    byRole: by.role,
+    byUserId: by.userId ? new Types.ObjectId(by.userId) : null,
+    note,
+    at: new Date(),
+  });
+
+  return from;
+}
+
+function isAdminOnly(from: ComplaintStatus, to: ComplaintStatus): boolean {
+  return ADMIN_ONLY_TRANSITIONS.some((rule) => rule.to === to && (rule.from === '*' || rule.from === from));
+}
+
+/**
+ * Move a complaint through its lifecycle. STAFF.
  *
- * TWO GATES, and they are independent:
+ * THREE GATES, checked separately so the error names the rule that was hit:
  *
- *   1. Is the transition legal at all?  -> the table in constants/complaint.ts
- *   2. Is THIS ROLE allowed to make it? -> concluding moves are admin-only
- *
- * Checking them separately means the error tells the caller which rule they hit: 409 for "you
- * cannot get there from here", 403 for "not with your role".
+ *   1. Is the transition legal at all?  -> 409, the table in constants/complaint.ts
+ *   2. Is THIS ROLE allowed to make it? -> 403, concluding / overturning is admin-only
+ *   3. Is it explained?                 -> 422, resolving or closing early needs a note
  */
 export async function setComplaintStatus(
   actor: AuthUser,
@@ -352,20 +454,22 @@ export async function setComplaintStatus(
   if (!allowed.includes(status)) {
     throw ApiError.conflict(
       complaint.status === 'closed'
-        ? 'This complaint is closed. Closed complaints cannot be reopened — file a new one referencing it.'
+        ? 'This complaint is closed. Closed complaints cannot be reopened — the driver can file a follow-up linked to it.'
         : `A complaint cannot move from ${complaint.status} to ${status}.`,
       { from: complaint.status, to: status, allowed },
     );
   }
 
-  if (CONCLUDING_TRANSITIONS.includes(status) && actor.role === ROLES.OPERATOR) {
+  if (actor.role === ROLES.OPERATOR && isAdminOnly(complaint.status, status)) {
     throw ApiError.forbidden(
-      'Only an administrator can resolve or close a complaint. You can move it to in_progress and add notes.',
+      'Only an administrator can resolve, close or reopen a resolved complaint. You can move it between open and in progress and add notes.',
     );
   }
 
+  let note: string | null = resolution?.trim() || null;
+
   if (status === 'resolved') {
-    const text = resolution ?? complaint.resolution;
+    const text = note ?? complaint.resolution;
 
     // You cannot conclude that something is fixed without saying what was done. Especially when
     // the ticket is a payment dispute and this note is the only record of the decision.
@@ -374,21 +478,152 @@ export async function setComplaintStatus(
     }
 
     complaint.resolution = text;
-    complaint.resolvedBy = new Types.ObjectId(actor.id);
-    complaint.resolvedAt = new Date();
-  } else if (resolution !== undefined) {
-    complaint.resolution = resolution;
+    note = text;
+  } else if (status === 'closed' && complaint.status !== 'resolved') {
+    // Closing WITHOUT resolving skips the driver's chance to dispute it, so it must say why:
+    // duplicate, invalid, spam. This is the "no `rejected` state" rule made enforceable.
+    if (!note) {
+      throw ApiError.validation(
+        'Say why you are closing this without resolving it (for example: duplicate, invalid, or spam).',
+      );
+    }
+    complaint.resolution = note;
+  } else if (note) {
+    complaint.resolution = note;
   }
 
-  const previous = complaint.status;
-  complaint.status = status;
+  const previous = applyTransition(complaint, status, { role: actor.role, userId: actor.id }, note);
   await complaint.save();
 
-  logger.info(SCOPE, `Complaint ${complaintId}: ${previous} -> ${status} by ${actor.email}`);
+  logger.info(
+    SCOPE,
+    `${actor.email} moved complaint "${complaint.subject}" from ${previous} to ${status} [complaint ${complaintId}]`,
+  );
 
-  // The dedupe key carries the NEW STATUS, so all three transitions produce three notifications
-  // rather than one. This is the case that ruled out keying on ids alone.
-  void notify.complaintUpdated(complaint, status, complaint.resolution);
+  void notify.complaintUpdated(complaint, status, complaint.resolution, complaint.history.length);
 
   return toPublicComplaint(complaint);
+}
+
+/* -------------------------------------------------------------------------- */
+/* The driver's two moves                                                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The driver agrees it is fixed. `resolved -> closed`, DRIVER ONLY.
+ *
+ * The reporter is the only person who actually knows whether the problem went away, so their
+ * confirmation is the strongest possible close. Without it the ticket closes itself after
+ * AUTO_CLOSE_AFTER_MS anyway — confirming just gets there sooner.
+ */
+export async function confirmComplaintResolved(
+  actor: AuthUser,
+  complaintId: string,
+): Promise<PublicComplaint> {
+  const complaint = await assertComplaintInScope(actor, complaintId);
+
+  if (complaint.status !== 'resolved') {
+    throw ApiError.conflict(
+      `Only a resolved complaint can be confirmed. This one is ${complaint.status.replace('_', ' ')}.`,
+    );
+  }
+
+  applyTransition(complaint, 'closed', { role: 'driver', userId: actor.id }, 'Driver confirmed the fix.');
+  await complaint.save();
+
+  logger.info(SCOPE, `${actor.email} confirmed complaint "${complaint.subject}" is fixed — closed [complaint ${complaintId}]`);
+
+  return toPublicComplaint(complaint);
+}
+
+/**
+ * The driver says it is NOT fixed. `resolved -> open`, DRIVER ONLY, reason required.
+ *
+ * Only from `resolved`: that is the window where staff have made a claim the driver can dispute.
+ * An `open` or `in_progress` ticket is already being worked, and a `closed` one is final — a
+ * returning problem there becomes a follow-up complaint instead.
+ *
+ * Back to `open`, not `in_progress`: it goes back into the queue so whoever is on shift sees it,
+ * rather than landing silently on the person who resolved it wrongly.
+ */
+export async function reopenComplaint(
+  actor: AuthUser,
+  complaintId: string,
+  reason: string,
+): Promise<PublicComplaint> {
+  const complaint = await assertComplaintInScope(actor, complaintId);
+
+  if (complaint.status !== 'resolved') {
+    throw ApiError.conflict(
+      complaint.status === 'closed'
+        ? 'This complaint is closed and cannot be reopened. Report it again as a follow-up instead.'
+        : 'This complaint is still being worked on, so there is nothing to reopen.',
+    );
+  }
+
+  applyTransition(complaint, 'open', { role: 'driver', userId: actor.id }, reason.trim());
+  await complaint.save();
+
+  logger.info(
+    SCOPE,
+    `${actor.email} reopened complaint "${complaint.subject}" (reopened ${complaint.reopenCount} time(s)): "${reason.trim()}" [complaint ${complaintId}]`,
+  );
+
+  void notify.complaintReopened(complaint, reason.trim(), complaint.history.length);
+
+  return toPublicComplaint(complaint);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Auto-close                                                                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Close every complaint that has sat in `resolved` for longer than AUTO_CLOSE_AFTER_MS.
+ *
+ * Silence counts as agreement — the same rule every help desk uses. Without it `resolved` becomes
+ * a permanent limbo, and the reopen window never ends.
+ */
+export async function sweepResolvedComplaints(): Promise<number> {
+  const cutoff = new Date(Date.now() - AUTO_CLOSE_AFTER_MS);
+
+  const due = await Complaint.find({ status: 'resolved', resolvedAt: { $lt: cutoff } });
+
+  for (const complaint of due) {
+    applyTransition(
+      complaint,
+      'closed',
+      { role: 'system', userId: null },
+      `Closed automatically — no reply within ${Math.round(AUTO_CLOSE_AFTER_MS / 86_400_000)} days of being resolved.`,
+    );
+    await complaint.save();
+    void notify.complaintUpdated(complaint, 'closed', complaint.resolution, complaint.history.length);
+  }
+
+  if (due.length > 0) {
+    logger.info(SCOPE, `Closed ${due.length} resolved complaint(s) automatically — the drivers didn't reply in time`);
+  }
+
+  return due.length;
+}
+
+let sweepTimer: NodeJS.Timeout | null = null;
+
+export function startComplaintSweeper(): void {
+  if (sweepTimer) return;
+
+  const run = () =>
+    void sweepResolvedComplaints().catch((error: unknown) =>
+      logger.error(SCOPE, 'Background auto-close of resolved complaints failed', error),
+    );
+
+  // Not run at boot: the database may not be connected yet, and a complaint closing an hour late
+  // after a restart costs nothing.
+  sweepTimer = setInterval(run, COMPLAINT_SWEEP_INTERVAL_MS);
+  sweepTimer.unref();
+}
+
+export function stopComplaintSweeper(): void {
+  if (sweepTimer) clearInterval(sweepTimer);
+  sweepTimer = null;
 }

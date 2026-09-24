@@ -125,7 +125,7 @@ function ComplaintsContent() {
 
         {state.status === 'ok' &&
           state.data.items.map((complaint) => (
-            <ComplaintRow key={complaint.id} complaint={complaint} />
+            <ComplaintRow key={complaint.id} complaint={complaint} showPriority={!isDriver} />
           ))}
       </div>
     </main>

@@ -16,6 +16,7 @@ import type {
   ComplaintStatusInput,
   CreateComplaintInput,
   ListComplaintsQuery,
+  ReopenComplaintInput,
   UpdateComplaintInput,
 } from '../validators/complaint.validator';
 
@@ -84,4 +85,27 @@ export const setComplaintStatus = asyncHandler(async (req: Request, res: Respons
   );
 
   sendSuccess(res, { complaint }, `Complaint marked ${status}`);
+});
+
+/** POST /complaints/:complaintId/confirm — the driver agrees it is fixed. Driver only. */
+export const confirmComplaintResolved = asyncHandler(async (req: Request, res: Response) => {
+  const complaint = await complaintService.confirmComplaintResolved(
+    requireUser(req),
+    String(req.params.complaintId),
+  );
+
+  sendSuccess(res, { complaint }, 'Thanks for confirming — complaint closed');
+});
+
+/** POST /complaints/:complaintId/reopen — the driver says it is still broken. Driver only. */
+export const reopenComplaint = asyncHandler(async (req: Request, res: Response) => {
+  const { reason } = req.body as ReopenComplaintInput;
+
+  const complaint = await complaintService.reopenComplaint(
+    requireUser(req),
+    String(req.params.complaintId),
+    reason,
+  );
+
+  sendSuccess(res, { complaint }, 'Complaint reopened');
 });

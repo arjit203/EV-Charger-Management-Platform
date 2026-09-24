@@ -16,7 +16,9 @@
     "lint": "eslint src",
     "seed:activity": "tsx src/scripts/seedDemoActivity.ts",
     "fix:settlement-backoff": "tsx src/scripts/backfillSettlementBackoff.ts",
-    "fix:arrears": "tsx src/scripts/clearArrears.ts"
+    "fix:arrears": "tsx src/scripts/clearArrears.ts",
+    "fix:session-hardware": "tsx src/scripts/backfillSessionHardware.ts",
+    "fix:station-location": "tsx src/scripts/backfillStationLocation.ts"
   },
   "keywords": [],
   "author": "",

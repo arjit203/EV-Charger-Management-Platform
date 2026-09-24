@@ -71,6 +71,41 @@
   }
 }
 
+/*
+ * Tell the browser which theme its OWN widgets should use — the options list of a <select>,
+ * scrollbars, date pickers, autofill.
+ *
+ * THE BUG THIS FIXES: the app switched to dark colours, but the browser was never told, so it
+ * kept drawing native dropdown lists in light mode — a white list — while the option text
+ * inherited the dark theme's near-white foreground. White on white: every dropdown in the app
+ * was unreadable until you hovered an option.
+ */
+:root {
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+  }
+}
+
+/*
+ * Belt and braces for the options themselves. Every <select> here is `bg-transparent`, and on
+ * Windows Chrome/Edge the open list takes its background from the select — transparent falls
+ * back to white regardless of color-scheme. Giving options an explicit surface and text colour
+ * makes the list readable in both themes on every browser.
+ */
+select option,
+select optgroup {
+  background-color: var(--surface);
+  color: var(--foreground);
+}
+
+select option:disabled {
+  color: var(--muted);
+}
+
 body {
   background: var(--background);
   color: var(--foreground);

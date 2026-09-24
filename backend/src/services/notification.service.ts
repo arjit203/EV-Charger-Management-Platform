@@ -96,7 +96,11 @@ export async function createNotification(
 
     // Never rethrown to the caller — see the file header. A notification problem is not a
     // charging problem.
-    logger.error(SCOPE, `Failed to create notification (${input.dedupeKey})`, error);
+    logger.error(
+      SCOPE,
+      `Couldn't save an in-app notification (${input.dedupeKey}) — the action itself still succeeded`,
+      error,
+    );
     return null;
   }
 }
@@ -327,14 +331,20 @@ export async function complaintUpdated(
   complaint: ComplaintLike,
   status: string,
   resolution: string | null,
+  /**
+   * Position in the complaint's history. Part of the dedupe key because a reopened complaint
+   * can reach the same status twice — keyed on status alone, the second "resolved" would be
+   * swallowed as a duplicate and the driver never told.
+   */
+  historyLength: number,
 ): Promise<void> {
   const messages: Record<string, string> = {
     in_progress: 'Someone is looking into your complaint.',
     resolved: resolution
       ? `Your complaint has been resolved: ${resolution}`
       : 'Your complaint has been resolved.',
-    closed: 'Your complaint has been closed.',
-    open: 'Your complaint has been reopened and is waiting for more information.',
+    closed: 'Your complaint has been closed. If the problem comes back, you can report it again as a follow-up.',
+    open: 'Your complaint is back in the support queue.',
   };
 
   await createNotification({
@@ -344,8 +354,30 @@ export async function complaintUpdated(
     message: messages[status] ?? 'Your complaint was updated.',
     referenceType: 'complaint',
     referenceId: complaint._id,
-    dedupeKey: dedupeKeys.complaint(String(complaint._id), status),
+    dedupeKey: dedupeKeys.complaint(String(complaint._id), `${status}:${historyLength}`),
   });
+}
+
+/**
+ * The driver disputed a resolution — tell the staff who can act on it, with the driver's reason,
+ * because "reopened" alone gives them nothing to start from.
+ */
+export async function complaintReopened(
+  complaint: ComplaintLike,
+  reason: string,
+  historyLength: number,
+): Promise<void> {
+  if (!complaint.companyId) return;
+
+  await notifyCompanyStaff(complaint.companyId, (staffUserId) => ({
+    userId: staffUserId,
+    type: 'complaint_updated',
+    title: 'Complaint reopened by driver',
+    message: `"${complaint.subject}" — ${reason}`,
+    referenceType: 'complaint',
+    referenceId: complaint._id,
+    dedupeKey: dedupeKeys.complaint(String(complaint._id), `reopened:${historyLength}`),
+  }));
 }
 
 /* -------------------------------------------------------------------------- */

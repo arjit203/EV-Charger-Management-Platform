@@ -15,11 +15,10 @@
  * doing it under cover of "polish the admin dashboard" is exactly the scope creep
  * this project keeps refusing. So this file is the old rendering, moved.
  *
- * KNOWN CARRYOVER, recorded rather than silently fixed: the capability list below
- * is still written in the future tense about features that now exist ("Find
- * available charging stations (Module 14)"). Correcting that copy means deciding
- * what a driver's home page should actually say, which belongs to a driver-facing
- * pass, not to this one.
+ * The carryover Module 15 recorded here — a capability list in the future tense
+ * with module numbers, a "Company: none (Module 2)" row and a developer note about
+ * GET /auth/me — was cleaned up in the leftovers pass. Copy only; the layout is
+ * still the Module 15 extraction.
  * ============================================================================
  */
 
@@ -32,17 +31,13 @@ import { useAuth } from '@/context/AuthContext';
 import { ROLE_LABELS } from '@/types/api';
 import { buttonClasses } from '@/components/ui/Button';
 
-/** What each role will be able to reach once later modules land. */
-/**
- * What a driver can do. The staff entries that used to live alongside this were unreachable
- * once the component became driver-only, so they are gone — the DRIVER's copy is untouched,
- * including its stale future tense (see the note at the top of this file).
- */
+/** What a driver can do here. */
 const DRIVER_CAPABILITIES: string[] = [
-  'Manage your own vehicles',
-  'Find available charging stations (Module 14)',
-  'Start and stop your own sessions (Module 7)',
-  'Your wallet, payments and charging history (Module 10)',
+  'Find a charging station near you and see which plugs are free',
+  'Start and stop your own charging sessions',
+  'Top up your wallet and see what each charge cost',
+  'Save your vehicles so we only show plugs that fit',
+  'Report a problem with a charge',
 ];
 
 /**
@@ -116,19 +111,12 @@ export function DriverHome() {
           <dt className="text-neutral-500">Role</dt>
           <dd className="font-mono text-xs">{user.role}</dd>
 
-          <dt className="text-neutral-500">Company</dt>
-          <dd className="font-mono text-xs">{user.companyId ?? 'none (Module 2)'}</dd>
-
           <dt className="text-neutral-500">Last login</dt>
           <dd className="font-mono text-xs">
             {user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : 'first session'}
           </dd>
         </dl>
 
-        <p className="mt-4 text-xs text-neutral-500">
-          These values came from <code className="font-mono">GET /auth/me</code>, resolved from your
-          token by the backend — nothing here is read from local storage.
-        </p>
       </section>
 
       {DRIVER_LINKS.length > 0 ? (
@@ -146,7 +134,7 @@ export function DriverHome() {
       ) : null}
 
       <section className="rounded-xl border border-neutral-200 p-5 dark:border-neutral-800">
-        <h2 className="text-sm font-semibold">What this role will be able to do</h2>
+        <h2 className="text-sm font-semibold">What you can do</h2>
         <ul className="mt-3 space-y-1.5 text-sm text-neutral-600 dark:text-neutral-400">
           {DRIVER_CAPABILITIES.map((capability) => (
             <li key={capability} className="flex gap-2">

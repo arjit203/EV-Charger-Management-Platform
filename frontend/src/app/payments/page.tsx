@@ -32,7 +32,8 @@ import { useAsyncData } from '@/hooks/useAsyncData';
 import { toMessage } from '@/lib/formatApiError';
 import { formatPaise } from '@/lib/money';
 import { listPayments } from '@/services/wallet.service';
-import type { PaymentTransaction } from '@/types/api';
+import { CompanyFilter, FILTER_SELECT_CLASS } from '@/components/filters';
+import type { PaymentPurpose, PaymentStatus, PaymentTransaction } from '@/types/api';
 
 /**
  * The two purposes read very differently on a ledger, and Module 13 made the distinction
@@ -45,7 +46,7 @@ const PURPOSE_LABEL: Record<string, string> = {
 };
 
 function PaymentsTable({ items }: { items: PaymentTransaction[] }) {
-  if (items.length === 0) return <EmptyState message="No payments recorded yet." />;
+  if (items.length === 0) return <EmptyState message="No payments match." />;
 
   return (
     <div className="overflow-x-auto">
@@ -94,8 +95,27 @@ function PaymentsTable({ items }: { items: PaymentTransaction[] }) {
 
 function PaymentsPage() {
   const [page, setPage] = useState(1);
+  const [status, setStatus] = useState<PaymentStatus | ''>('');
+  const [purpose, setPurpose] = useState<PaymentPurpose | ''>('');
+  const [companyId, setCompanyId] = useState('');
 
-  const load = useCallback(() => listPayments(page, 20), [page]);
+  const load = useCallback(
+    () =>
+      listPayments(page, 20, {
+        status: status || undefined,
+        purpose: purpose || undefined,
+        companyId: companyId || undefined,
+      }),
+    [page, status, purpose, companyId],
+  );
+
+  /** Any filter change starts again from page 1 — page 4 of a narrower list may not exist. */
+  function filterBy<T>(set: (value: T) => void) {
+    return (value: T) => {
+      set(value);
+      setPage(1);
+    };
+  }
   const { state, reload } = useAsyncData(load);
 
   return (
@@ -106,6 +126,32 @@ function PaymentsPage() {
           Every movement recorded against your company, newest first. Deposits and sales are
           labelled separately — they are not the same thing.
         </p>
+      </div>
+
+      <div className="flex flex-wrap gap-3">
+        <select
+          value={status}
+          onChange={(e) => filterBy(setStatus)(e.target.value as PaymentStatus | '')}
+          aria-label="Filter by payment status"
+          className={FILTER_SELECT_CLASS}
+        >
+          <option value="">All statuses</option>
+          <option value="paid">Paid</option>
+          <option value="pending">Pending (awaiting balance)</option>
+          <option value="failed">Failed</option>
+          <option value="refunded">Refunded</option>
+        </select>
+        <select
+          value={purpose}
+          onChange={(e) => filterBy(setPurpose)(e.target.value as PaymentPurpose | '')}
+          aria-label="Filter by payment type"
+          className={FILTER_SELECT_CLASS}
+        >
+          <option value="">Sales &amp; deposits</option>
+          <option value="session_debit">Charging sessions (sales)</option>
+          <option value="wallet_recharge">Wallet top-ups (deposits)</option>
+        </select>
+        <CompanyFilter value={companyId} onChange={filterBy(setCompanyId)} />
       </div>
 
       <Panel title="Ledger">

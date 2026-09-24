@@ -11,6 +11,10 @@
  *
  * WHAT IT NEEDS RUNNING:
  *   - the backend on $BASE (default http://localhost:5000/api/v1)
+ *   - that backend started with OCPP_OFFLINE_AFTER_SECONDS=5. The ocpp suite holds
+ *     heartbeats for 9s to prove a silent charger is marked offline; the 90s production
+ *     default cannot be observed in that window, and the suite reports two failures that
+ *     look like broken disconnect handling rather than a missing environment variable.
  *   - `npm run build` in backend/  (money, settlement-race and arrears import compiled output)
  *   - MongoDB reachable via backend/.env
  *

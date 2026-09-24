@@ -39,7 +39,14 @@ export const PRIORITY_TONES: Record<ComplaintPriority, Tone> = {
 };
 
 /** One row in a complaint list — used by both the driver view and the staff queue. */
-export function ComplaintRow({ complaint }: { complaint: Complaint }) {
+/** `showPriority` is for staff only — priority is internal triage, not something the driver sees. */
+export function ComplaintRow({
+  complaint,
+  showPriority = false,
+}: {
+  complaint: Complaint;
+  showPriority?: boolean;
+}) {
   return (
     <Link
       href={`/complaints/${complaint.id}`}
@@ -51,7 +58,7 @@ export function ComplaintRow({ complaint }: { complaint: Complaint }) {
           {CATEGORY_LABELS[complaint.category]}
           {' · '}
           {new Date(complaint.createdAt).toLocaleDateString()}
-          {complaint.priority === 'high' && ' · high priority'}
+          {showPriority && complaint.priority === 'high' && ' · high priority'}
         </p>
       </div>
       <StatusBadge

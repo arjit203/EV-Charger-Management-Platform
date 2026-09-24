@@ -12,11 +12,12 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 
 import { RequireAuth } from '@/components/RequireAuth';
+import { CompanyFilter, FILTER_SELECT_CLASS, PlugTypeFilter, PowerTypeFilter } from '@/components/filters';
 import { StatusBadge } from '@/components/StatusBadge';
 import { useAuth } from '@/context/AuthContext';
 import { useAsyncData } from '@/hooks/useAsyncData';
 import { listChargers } from '@/services/charger.service';
-import type { Charger, ChargerStatus, ChargerType } from '@/types/api';
+import type { Charger, ChargerStatus, ChargerType, ConnectorType } from '@/types/api';
 import { buttonClasses } from '@/components/ui/Button';
 
 export function chargerStatusTone(status: ChargerStatus) {
@@ -68,6 +69,9 @@ function ChargerListContent() {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<ChargerStatus | ''>('');
   const [chargerType, setChargerType] = useState<ChargerType | ''>('');
+  const [connectorType, setConnectorType] = useState<ConnectorType | ''>('');
+  const [connectivity, setConnectivity] = useState<'' | 'online' | 'offline'>('');
+  const [companyId, setCompanyId] = useState('');
 
   const load = useCallback(
     () =>
@@ -75,10 +79,13 @@ function ChargerListContent() {
         search: search || undefined,
         status: status || undefined,
         chargerType: chargerType || undefined,
+        connectorType: connectorType || undefined,
+        isOnline: connectivity ? connectivity === 'online' : undefined,
+        companyId: companyId || undefined,
         stationId,
         limit: 50,
       }),
-    [search, status, chargerType, stationId],
+    [search, status, chargerType, connectorType, connectivity, companyId, stationId],
   );
 
   const { state } = useAsyncData(load);
@@ -89,7 +96,7 @@ function ChargerListContent() {
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-xs font-medium uppercase tracking-widest text-neutral-500">
-            EV-CMS &middot; Module 5
+            EV-CMS
           </p>
           <h1 className="mt-1 text-2xl font-semibold">Chargers</h1>
           <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
@@ -116,14 +123,18 @@ function ChargerListContent() {
           value={search} onChange={(e) => setSearch(e.target.value)}
           className="min-w-0 flex-1 rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
         />
+        <CompanyFilter value={companyId} onChange={setCompanyId} />
+        <PowerTypeFilter value={chargerType} onChange={setChargerType} />
+        <PlugTypeFilter value={connectorType} onChange={setConnectorType} />
         <select
-          value={chargerType} onChange={(e) => setChargerType(e.target.value as ChargerType | '')}
-          aria-label="Filter by type"
-          className="rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
+          value={connectivity}
+          onChange={(e) => setConnectivity(e.target.value as '' | 'online' | 'offline')}
+          aria-label="Filter by connectivity"
+          className={FILTER_SELECT_CLASS}
         >
-          <option value="">All types</option>
-          <option value="DC">DC</option>
-          <option value="AC">AC</option>
+          <option value="">Online &amp; offline</option>
+          <option value="online">Online</option>
+          <option value="offline">Offline</option>
         </select>
         <select
           value={status} onChange={(e) => setStatus(e.target.value as ChargerStatus | '')}

@@ -20,6 +20,7 @@ import { connectDatabase, disconnectDatabase } from './config/db';
 import { attachOcppGateway, shutdownOcppGateway } from './ocpp/gateway';
 import { attachRealtime, closeRealtime } from './realtime';
 import { startSettlementSweeper, stopSettlementSweeper } from './services/payment.service';
+import { startComplaintSweeper, stopComplaintSweeper } from './services/complaint.service';
 import { logger } from './utils/logger';
 
 const SCOPE = 'server';
@@ -50,6 +51,12 @@ attachRealtime(httpServer);
  * everything shape as Module 7's session sweeper.
  */
 startSettlementSweeper();
+
+/*
+ * Closes complaints that have sat in `resolved` past the driver's reopen window. Silence counts
+ * as agreement, as in every help desk; without this `resolved` would be a permanent limbo.
+ */
+startComplaintSweeper();
 
 httpServer.listen(env.port, () => {
   logger.info(SCOPE, `EV-CMS backend listening on http://localhost:${env.port}`);
@@ -89,6 +96,7 @@ async function shutdown(signal: string): Promise<void> {
       await shutdownOcppGateway();
       await closeRealtime();
       stopSettlementSweeper();
+      stopComplaintSweeper();
       await disconnectDatabase();
     } catch (error) {
       logger.error(SCOPE, 'Error while closing the database connection', error);

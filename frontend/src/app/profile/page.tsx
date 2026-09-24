@@ -59,7 +59,7 @@ function ProfileContent() {
     <main className="mx-auto flex w-full max-w-xl flex-1 flex-col gap-6 px-6 py-16">
       <header>
         <p className="text-xs font-medium uppercase tracking-widest text-neutral-500">
-          EV-CMS &middot; Module 3
+          EV-CMS
         </p>
         <h1 className="mt-1 text-2xl font-semibold">My profile</h1>
       </header>

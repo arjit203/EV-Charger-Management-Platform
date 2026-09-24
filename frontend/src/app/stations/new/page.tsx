@@ -22,7 +22,7 @@ function CreateStationContent() {
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-16">
       <header>
         <p className="text-xs font-medium uppercase tracking-widest text-neutral-500">
-          EV-CMS &middot; Module 4
+          EV-CMS
         </p>
         <h1 className="mt-1 text-2xl font-semibold">New station</h1>
         <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">

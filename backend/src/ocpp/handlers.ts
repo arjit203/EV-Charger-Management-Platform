@@ -111,7 +111,10 @@ export async function handleBootNotification(
   const vendor = typeof payload.chargePointVendor === 'string' ? payload.chargePointVendor : 'unknown';
   const model = typeof payload.chargePointModel === 'string' ? payload.chargePointModel : 'unknown';
 
-  logger.info(SCOPE, `BootNotification from ${connection.ocppId} (${vendor} ${model})`);
+  logger.info(
+    SCOPE,
+    `Charger ${connection.ocppId} started up and said hello — ${vendor} ${model} (BootNotification)`,
+  );
 
   const charger = await Charger.findByIdAndUpdate(
     connection.chargerId,
@@ -211,12 +214,16 @@ export async function handleStatusNotification(
     // because refusing would leave real hardware retrying forever over a data-entry gap.
     logger.warn(
       SCOPE,
-      `StatusNotification for unknown connector ${connectorNumber} on ${connection.ocppId}`,
+      `Charger ${connection.ocppId} reported a status for connector ${connectorNumber}, but that ` +
+        `connector isn't set up in the system — add it on the charger page (StatusNotification)`,
     );
     return {};
   }
 
-  logger.info(SCOPE, `StatusNotification ${connection.ocppId} connector ${connectorNumber}: ${ocppStatus}`);
+  logger.info(
+    SCOPE,
+    `${connection.ocppId} connector ${connectorNumber} is now "${ocppStatus}" (StatusNotification)`,
+  );
 
   // AFTER the write, never before: the database is the truth and this is only delivery.
   const charger = await Charger.findById(connection.chargerId).select('stationId name chargerCode');
@@ -253,8 +260,9 @@ export async function handleStatusNotification(
 
     logger.warn(
       SCOPE,
-      `Connector ${connectorNumber} on ${connection.ocppId} faulted` +
-        `${errorCode ? ` (${errorCode})` : ''} — ${failed} session(s) ended`,
+      `${connection.ocppId} connector ${connectorNumber} reported a fault` +
+        `${errorCode ? ` (error code ${errorCode})` : ''}. ` +
+        `${failed > 0 ? `${failed} charging session(s) on it were stopped.` : 'Nobody was charging on it.'}`,
     );
 
     if (charger) {
@@ -301,8 +309,8 @@ async function handleChargePointStatus(
     // OcppError: a CALLERROR would make a charger retry a message we will never accept.
     logger.warn(
       SCOPE,
-      `Ignoring charge-point-level status "${ocppStatus}" from ${connection.ocppId} — ` +
-        `only Available, Faulted and Unavailable describe the machine itself`,
+      `Ignored a whole-charger status "${ocppStatus}" from ${connection.ocppId}: only ` +
+        `Available, Faulted and Unavailable make sense for the charger as a whole`,
     );
     return {};
   }
@@ -332,14 +340,14 @@ async function handleChargePointStatus(
   );
 
   if (!previous) {
-    logger.info(SCOPE, `StatusNotification ${connection.ocppId} charge point: ${ocppStatus} (unchanged)`);
+    logger.info(SCOPE, `Charger ${connection.ocppId} repeated its status "${ocppStatus}" — nothing changed`);
     return {};
   }
 
   logger.warn(
     SCOPE,
-    `Charge point ${connection.ocppId} reported itself ${mapped}` +
-      `${errorCode ? ` (${errorCode})` : ''} — was ${previous.hardwareStatus}`,
+    `Charger ${connection.ocppId} changed from ${previous.hardwareStatus} to ${mapped}` +
+      `${errorCode ? ` (error code ${errorCode})` : ''}`,
   );
 
   realtime.emitChargerHardwareStatus({
@@ -367,7 +375,10 @@ async function handleChargePointStatus(
     );
 
     if (failed > 0) {
-      logger.warn(SCOPE, `${failed} session(s) ended by the fault on ${connection.ocppId}`);
+      logger.warn(
+        SCOPE,
+        `${failed} charging session(s) stopped because charger ${connection.ocppId} has a fault`,
+      );
     }
 
     void notify.chargerFault({
@@ -404,7 +415,10 @@ export async function handleAuthorize(
   const idTag = requireString(payload, 'idTag');
   const status = await sessionEvents.authorizeIdTag(idTag);
 
-  logger.info(SCOPE, `Authorize ${connection.ocppId} idTag=${idTag} -> ${status}`);
+  logger.info(
+    SCOPE,
+    `Charger ${connection.ocppId} asked whether it may start charging: ${status} (Authorize, tag ${idTag})`,
+  );
 
   // Passed through verbatim. The decision belongs to the service; this handler's job is to
   // put it on the wire in the shape OCPP 1.6 expects, not to reinterpret it.
@@ -446,7 +460,7 @@ export async function handleStartTransaction(
   if (!outcome.accepted || !outcome.session || outcome.session.transactionId === null) {
     logger.warn(
       SCOPE,
-      `StartTransaction refused on ${connection.ocppId}: ${outcome.reason ?? 'no matching session'}`,
+      `Told ${connection.ocppId} not to start charging: ${outcome.reason ?? 'no matching session'} (StartTransaction)`,
     );
 
     // The protocol still wants a number. Allocating a throwaway one is safer than returning 0,
@@ -469,7 +483,8 @@ export async function handleStartTransaction(
 
   logger.info(
     SCOPE,
-    `StartTransaction ${connection.ocppId} connector ${connectorNumber} -> transaction ${transactionId}`,
+    `${connection.ocppId} connector ${connectorNumber} began charging — assigned OCPP transaction ` +
+      `${transactionId} (StartTransaction)`,
   );
 
   return { transactionId, idTagInfo: { status: 'Accepted' } };
@@ -508,7 +523,10 @@ export async function handleMeterValues(
         : null;
 
   if (transactionId === null) {
-    logger.warn(SCOPE, `MeterValues from ${connection.ocppId} with no resolvable transaction - ignored`);
+    logger.warn(
+      SCOPE,
+      `Ignored a meter reading from ${connection.ocppId}: it didn't say which charging session it belongs to`,
+    );
     return {};
   }
 
@@ -523,12 +541,14 @@ export async function handleMeterValues(
   if (outcome.stored) {
     logger.info(
       SCOPE,
-      `MeterValues ${connection.ocppId} transaction ${transactionId}: ${(energyWh / 1000).toFixed(3)} kWh`,
+      `Meter reading from ${connection.ocppId} (transaction ${transactionId}): ` +
+        `${(energyWh / 1000).toFixed(3)} kWh on the meter`,
     );
   } else {
     logger.warn(
       SCOPE,
-      `MeterValues ${connection.ocppId} transaction ${transactionId} dropped: ${outcome.reason ?? 'unknown'}`,
+      `Discarded a meter reading from ${connection.ocppId} (transaction ${transactionId}): ` +
+        `${outcome.reason ?? 'unknown reason'}`,
     );
   }
 
@@ -571,12 +591,15 @@ export async function handleStopTransaction(
     if (session) {
       logger.info(
         SCOPE,
-        `StopTransaction ${connection.ocppId} transaction ${transactionId}: ` +
-          `${(session.energyConsumedWh / 1000).toFixed(3)} kWh consumed`,
+        `${connection.ocppId} reported charging ended (transaction ${transactionId}): ` +
+          `${(session.energyConsumedWh / 1000).toFixed(3)} kWh delivered (StopTransaction)`,
       );
     }
   } else {
-    logger.warn(SCOPE, `StopTransaction from ${connection.ocppId} with no transaction id`);
+    logger.warn(
+      SCOPE,
+      `${connection.ocppId} said charging ended but didn't say which session — ignored (StopTransaction)`,
+    );
   }
 
   // Forget ONLY the connector that stopped. Clearing the whole charger here is exactly the bug

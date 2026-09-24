@@ -12,6 +12,7 @@ import { useCallback, useState } from 'react';
 import Link from 'next/link';
 
 import { RequireAuth } from '@/components/RequireAuth';
+import { CompanyFilter } from '@/components/filters';
 import { StatusBadge } from '@/components/StatusBadge';
 import { useAuth } from '@/context/AuthContext';
 import { useAsyncData } from '@/hooks/useAsyncData';
@@ -45,10 +46,17 @@ function TariffListContent() {
   const canManage = user?.role === 'super_admin' || user?.role === 'cpo_admin';
 
   const [status, setStatus] = useState<TariffStatus | ''>('');
+  const [companyId, setCompanyId] = useState('');
+  const isPlatformAdmin = user?.role === 'super_admin';
 
   const load = useCallback(
-    () => listTariffs({ limit: 50, ...(status ? { status } : {}) }),
-    [status],
+    () =>
+      listTariffs({
+        limit: 50,
+        ...(status ? { status } : {}),
+        ...(companyId ? { companyId } : {}),
+      }),
+    [status, companyId],
   );
 
   const { state } = useAsyncData(load);
@@ -75,7 +83,7 @@ function TariffListContent() {
         )}
       </div>
 
-      {state.status === 'ok' && (
+      {state.status === 'ok' && (!isPlatformAdmin || companyId) && (
         <div className="mt-6 rounded-2xl border border-neutral-200 p-6 dark:border-neutral-800">
           <p className="text-xs uppercase tracking-wide text-neutral-500">Currently charging</p>
           {active ? (
@@ -104,6 +112,7 @@ function TariffListContent() {
           <option value="active">Active</option>
           <option value="inactive">Inactive</option>
         </select>
+        <CompanyFilter value={companyId} onChange={setCompanyId} />
       </div>
 
       <div className="mt-4 space-y-3">

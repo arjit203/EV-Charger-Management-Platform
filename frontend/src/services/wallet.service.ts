@@ -11,6 +11,8 @@ import { apiRequest } from './apiClient';
 import type {
   Paginated,
   PaymentPayload,
+  PaymentPurpose,
+  PaymentStatus,
   PaymentTransaction,
   RechargeOrder,
   RechargeOrderPayload,
@@ -64,10 +66,23 @@ export function verifyRecharge(input: {
 }
 
 /** Scoped server-side: a driver sees their own, staff see their company's collections. */
-export function listPayments(page = 1, limit = 20): Promise<Paginated<PaymentTransaction>> {
-  return apiRequest<Paginated<PaymentTransaction>>(`/payments?page=${page}&limit=${limit}`, {
-    cache: 'no-store',
-  });
+export interface PaymentFilters {
+  status?: PaymentStatus;
+  purpose?: PaymentPurpose;
+  /** super_admin only — ignored for everyone else. */
+  companyId?: string;
+}
+
+export function listPayments(
+  page = 1,
+  limit = 20,
+  filters: PaymentFilters = {},
+): Promise<Paginated<PaymentTransaction>> {
+  const query = new URLSearchParams({ page: String(page), limit: String(limit) });
+  for (const [key, value] of Object.entries(filters)) {
+    if (value) query.set(key, String(value));
+  }
+  return apiRequest<Paginated<PaymentTransaction>>(`/payments?${query}`, { cache: 'no-store' });
 }
 
 export async function getPayment(paymentId: string): Promise<PaymentTransaction> {

@@ -38,7 +38,8 @@ export interface ActivityItem {
   id: string;
   at: string;
   text: string;
-  href: string;
+  /** Null when the viewer's role has no page to open for this item. */
+  href: string | null;
   tone: 'neutral' | 'good' | 'warn' | 'bad';
 }
 
@@ -61,6 +62,7 @@ export function buildActivity(
   sessions: ChargingSession[],
   complaints: Complaint[],
   payments: PaymentTransaction[],
+  canOpenPayments: boolean,
   limit = 15,
 ): ActivityItem[] {
   const items: ActivityItem[] = [];
@@ -97,7 +99,11 @@ export function buildActivity(
         payment.purpose === 'session_debit'
           ? `Payment collected: ${formatPaise(payment.amountPaise)}`
           : `Wallet topped up: ${formatPaise(payment.amountPaise)}`,
-      href: '/payments',
+      href: payment.chargingSessionId
+        ? `/sessions/${payment.chargingSessionId}`
+        : canOpenPayments
+          ? '/payments'
+          : null,
       tone: 'good',
     });
   }
@@ -114,6 +120,16 @@ const TONE_DOT: Record<ActivityItem['tone'], string> = {
   bad: 'bg-red-500',
 };
 
+function ActivityRow({ item }: { item: ActivityItem }) {
+  return (
+    <>
+      <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${TONE_DOT[item.tone]}`} />
+      <span className="min-w-0 flex-1 truncate text-sm">{item.text}</span>
+      <span className="shrink-0 text-[11px] text-neutral-500">{relativeTime(item.at)}</span>
+    </>
+  );
+}
+
 export function RecentActivity({ items }: { items: ActivityItem[] }) {
   return (
     <Panel title="Recent activity">
@@ -123,14 +139,18 @@ export function RecentActivity({ items }: { items: ActivityItem[] }) {
         <ul className="space-y-0.5">
           {items.map((item) => (
             <li key={item.id}>
-              <Link
-                href={item.href}
-                className="flex items-baseline gap-2.5 rounded-lg px-2 py-1.5 transition-colors hover:bg-neutral-500/5"
-              >
-                <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${TONE_DOT[item.tone]}`} />
-                <span className="min-w-0 flex-1 truncate text-sm">{item.text}</span>
-                <span className="shrink-0 text-[11px] text-neutral-500">{relativeTime(item.at)}</span>
-              </Link>
+              {item.href ? (
+                <Link
+                  href={item.href}
+                  className="flex items-baseline gap-2.5 rounded-lg px-2 py-1.5 transition-colors hover:bg-neutral-500/5"
+                >
+                  <ActivityRow item={item} />
+                </Link>
+              ) : (
+                <div className="flex items-baseline gap-2.5 rounded-lg px-2 py-1.5">
+                  <ActivityRow item={item} />
+                </div>
+              )}
             </li>
           ))}
         </ul>

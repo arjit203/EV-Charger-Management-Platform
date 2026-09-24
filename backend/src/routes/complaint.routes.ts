@@ -1,9 +1,11 @@
 import { Router } from 'express';
 
 import {
+  confirmComplaintResolved,
   createComplaint,
   getComplaintById,
   listComplaints,
+  reopenComplaint,
   setComplaintStatus,
   updateComplaint,
 } from '../controllers/complaint.controller';
@@ -16,6 +18,7 @@ import {
   complaintStatusSchema,
   createComplaintSchema,
   listComplaintsQuerySchema,
+  reopenComplaintSchema,
   updateComplaintSchema,
 } from '../validators/complaint.validator';
 
@@ -75,11 +78,13 @@ router.patch(
 );
 
 /**
- * The lifecycle. STAFF ONLY — a driver can report a problem and watch it, not declare it fixed.
+ * The staff lifecycle. The driver never declares their own ticket fixed from here — their two
+ * moves (confirm, reopen) are the dedicated routes below, because they are a different claim.
  *
  * The role split within staff is enforced in the service, not here: an operator may move a
- * ticket to `in_progress` and add notes, but only an administrator may `resolve` or `close` it.
- * That distinction cannot live in `authorize()`, because it depends on the target status.
+ * ticket between open and in_progress and add notes, but only an administrator may resolve,
+ * close, or take back a resolution. That depends on the target status, so it cannot live in
+ * `authorize()`.
  */
 router.patch(
   '/:complaintId/status',
@@ -87,6 +92,30 @@ router.patch(
   validateParams(complaintIdParamSchema),
   validateBody(complaintStatusSchema),
   setComplaintStatus,
+);
+
+/**
+ * The driver's side of a resolution. DRIVER ONLY, owner-scoped in the service.
+ *
+ *   confirm  resolved -> closed   "yes, it is fixed"
+ *   reopen   resolved -> open     "no, it is still broken" (reason required)
+ *
+ * Only from `resolved`. A closed complaint is final; a problem that returns after closure is a
+ * new complaint with `followUpOf` pointing at the old one.
+ */
+router.post(
+  '/:complaintId/confirm',
+  authorize(ROLES.DRIVER),
+  validateParams(complaintIdParamSchema),
+  confirmComplaintResolved,
+);
+
+router.post(
+  '/:complaintId/reopen',
+  authorize(ROLES.DRIVER),
+  validateParams(complaintIdParamSchema),
+  validateBody(reopenComplaintSchema),
+  reopenComplaint,
 );
 
 export default router;

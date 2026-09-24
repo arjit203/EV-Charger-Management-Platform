@@ -57,6 +57,24 @@ const SWEEP_INTERVAL_MS = Math.max(1_000, Math.min(15_000, OFFLINE_AFTER_MS / 2)
 /** Close code used when a reconnect supersedes an older socket. */
 const CLOSE_SUPERSEDED = 4000;
 
+/** Plain-English meaning of a WebSocket close code, for logs. The number stays for searching. */
+function describeCloseCode(code: number): string {
+  switch (code) {
+    case 1000:
+      return 'closed normally';
+    case 1001:
+      return 'the charger is shutting down or restarting';
+    case 1006:
+      return 'connection lost without a goodbye — usually network or power loss';
+    case 1011:
+      return 'the charger hit an internal error';
+    case CLOSE_SUPERSEDED:
+      return 'replaced by a newer connection from the same charger';
+    default:
+      return 'unexpected close';
+  }
+}
+
 let wss: WebSocketServer | null = null;
 let sweepTimer: NodeJS.Timeout | null = null;
 
@@ -112,18 +130,24 @@ async function authenticate(request: IncomingMessage): Promise<AuthenticatedChar
 
   // Check 2 first: it needs no database round trip.
   if (username !== ocppId) {
-    logger.warn(SCOPE, `Auth rejected: identity mismatch (path=${ocppId}, user=${username})`);
+    logger.warn(
+      SCOPE,
+      `Refused connection: a charger connecting as "${ocppId}" logged in with the credentials of "${username}"`,
+    );
     return null;
   }
 
   const charger = await Charger.findOne({ ocppId }).select('_id companyId ocppId +authTokenHash');
   if (!charger) {
-    logger.warn(SCOPE, `Auth rejected: unknown charger ${ocppId}`);
+    logger.warn(SCOPE, `Refused connection from "${ocppId}": no charger with that OCPP id is registered`);
     return null;
   }
 
   if (!(await verifyChargerToken(token, charger.authTokenHash))) {
-    logger.warn(SCOPE, `Auth rejected: bad token for ${ocppId}`);
+    logger.warn(
+      SCOPE,
+      `Refused connection from ${ocppId}: wrong password (auth token) — regenerate it on the charger page if it was lost`,
+    );
     return null;
   }
 
@@ -151,7 +175,7 @@ async function onFrame(connection: registry.ChargerConnection, raw: string): Pro
   if (!message) {
     // Malformed frame. Answer with a CALLERROR and KEEP THE SOCKET OPEN — one bad message
     // from one charger must never take down the backend or disconnect that charger.
-    logger.warn(SCOPE, `Malformed frame from ${connection.ocppId}`);
+    logger.warn(SCOPE, `Charger ${connection.ocppId} sent a message that isn't valid OCPP — rejected it`);
     connection.socket.send(
       buildCallError('0', OcppErrorCode.FORMATION_VIOLATION, 'Could not parse message'),
     );
@@ -161,7 +185,10 @@ async function onFrame(connection: registry.ChargerConnection, raw: string): Pro
   // A reply to something WE sent (RemoteStart/RemoteStop).
   if (message.type === MessageType.CALLRESULT || message.type === MessageType.CALLERROR) {
     if (!handleResponse(message)) {
-      logger.warn(SCOPE, `Unmatched response ${message.uniqueId} from ${connection.ocppId}`);
+      logger.warn(
+        SCOPE,
+        `Charger ${connection.ocppId} answered a command we are no longer waiting for (probably timed out) — ignored`,
+      );
     }
     return;
   }
@@ -169,7 +196,10 @@ async function onFrame(connection: registry.ChargerConnection, raw: string): Pro
   const handler = HANDLERS[message.action];
 
   if (!handler) {
-    logger.warn(SCOPE, `Unsupported action "${message.action}" from ${connection.ocppId}`);
+    logger.warn(
+      SCOPE,
+      `Charger ${connection.ocppId} sent "${message.action}", which this system doesn't support yet — replied NotSupported`,
+    );
     connection.socket.send(
       buildCallError(
         message.uniqueId,
@@ -193,7 +223,11 @@ async function onFrame(connection: registry.ChargerConnection, raw: string): Pro
 
     // An unexpected failure in a handler is our bug, not the charger's. Report it as an
     // internal error and stay connected.
-    logger.error(SCOPE, `Handler "${message.action}" failed for ${connection.ocppId}`, error);
+    logger.error(
+      SCOPE,
+      `Something went wrong on our side handling "${message.action}" from ${connection.ocppId}`,
+      error,
+    );
     connection.socket.send(
       buildCallError(message.uniqueId, OcppErrorCode.INTERNAL_ERROR, 'Internal gateway error'),
     );
@@ -226,7 +260,7 @@ async function announceConnectivity(
       lastHeartbeatAt: charger.lastHeartbeatAt ? charger.lastHeartbeatAt.toISOString() : null,
     });
   } catch (error) {
-    logger.error(SCOPE, `Failed to announce connectivity for ${ocppId}`, error);
+    logger.error(SCOPE, `Couldn't tell the dashboards that ${ocppId} went online/offline`, error);
   }
 }
 
@@ -253,7 +287,8 @@ async function sweepStaleConnections(): Promise<void> {
 
     logger.warn(
       SCOPE,
-      `No heartbeat from ${connection.ocppId} for over ${OFFLINE_AFTER_MS / 1000}s — marking offline`,
+      `Charger ${connection.ocppId} has been silent for over ${OFFLINE_AFTER_MS / 1000}s ` +
+        '(no heartbeat) — marking it offline',
     );
 
     try {
@@ -270,11 +305,59 @@ async function sweepStaleConnections(): Promise<void> {
 
       await announceConnectivity(connection.chargerId, connection.companyId, connection.ocppId, false);
     } catch (error) {
-      logger.error(SCOPE, `Failed to mark ${connection.ocppId} offline`, error);
+      logger.error(SCOPE, `Couldn't mark silent charger ${connection.ocppId} offline`, error);
     }
 
     registry.remove(connection.ocppId, connection.socket);
     connection.socket.terminate();
+  }
+}
+
+/**
+ * Reconcile `isOnline` with reality at boot.
+ *
+ * THE GAP THIS CLOSES. `sweepStaleConnections` only ever looks at `registry.all()` — sockets
+ * this process is holding. The registry is in-memory, so it starts EMPTY, which means a
+ * charger the previous process had marked online is invisible to the sweep forever. Its
+ * `isOnline: true` is never revisited by anything.
+ *
+ * The result is a lie with a long half-life. A charger last heard from eight days ago still
+ * advertises itself to drivers as `ready`, with a plug type, a power rating and a price. The
+ * driver only finds out it is gone after tapping Start, because the start path checks the live
+ * registry while every listing reads the database mirror.
+ *
+ * The fix is a statement of fact rather than a heuristic: at the moment the gateway attaches,
+ * this process holds no sockets, so NO charger is connected. Anything claiming otherwise is a
+ * leftover from a process that no longer exists. There is no timeout to tune and no race — a
+ * charger that reconnects a second later sets `isOnline: true` again through the normal path.
+ *
+ * Open sessions and in-flight connectors are released through the same helper the disconnect
+ * paths use, because the situation is identical: the charger is gone, so a plug still reading
+ * `charging` is asserting a charge that nothing is delivering.
+ */
+async function reconcileOnlineStateAtBoot(): Promise<void> {
+  const stale = await Charger.find({ isOnline: true }).select('_id ocppId').lean();
+  if (stale.length === 0) return;
+
+  logger.warn(
+    SCOPE,
+    `${stale.length} charger(s) were marked online before the backend restarted ` +
+      `(${stale.map((c) => c.ocppId).join(', ')}). Their connections were lost in the restart, ` +
+      'so they are now offline until they reconnect.',
+  );
+
+  await Charger.updateMany({ isOnline: true }, { $set: { isOnline: false } });
+
+  for (const charger of stale) {
+    try {
+      await sessionEvents.failOpenSessionsForCharger(
+        String(charger._id),
+        'ChargerDisconnected',
+        'The backend restarted while this charger was connected.',
+      );
+    } catch (error) {
+      logger.error(SCOPE, `Couldn't clean up charger ${charger.ocppId} after the restart`, error);
+    }
   }
 }
 
@@ -304,10 +387,15 @@ export function attachOcppGateway(httpServer: HttpServer): void {
         });
       })
       .catch((error) => {
-        logger.error(SCOPE, 'Upgrade failed', error);
+        logger.error(SCOPE, 'A charger tried to connect but the connection setup crashed', error);
         rejectUpgrade(socket, 'error');
       });
   });
+
+  // Before anything else: nothing can be online, because this process holds no sockets yet.
+  void reconcileOnlineStateAtBoot().catch((error: unknown) =>
+    logger.error(SCOPE, 'Startup check of which chargers are online failed', error),
+  );
 
   sweepTimer = setInterval(() => void sweepStaleConnections(), SWEEP_INTERVAL_MS);
   sweepTimer.unref();
@@ -318,14 +406,19 @@ export function attachOcppGateway(httpServer: HttpServer): void {
     .highestTransactionId()
     .then((highest) => {
       registry.seedTransactionId(highest);
-      if (highest > 0) logger.info(SCOPE, `Transaction ids resume after ${highest}`);
+      if (highest > 0) {
+        logger.info(
+          SCOPE,
+          `Next OCPP transaction id will be ${highest + 1} (continuing from before the restart)`,
+        );
+      }
     })
-    .catch((error: unknown) => logger.error(SCOPE, 'Failed to seed transaction ids', error));
+    .catch((error: unknown) => logger.error(SCOPE, "Couldn't find the last used OCPP transaction id", error));
 
   // Module 7: fails sessions the charger never confirmed, releasing the connector reservation.
   sessionEvents.startSessionSweeper();
 
-  logger.info(SCOPE, `OCPP gateway listening on ws://<host>${OCPP_PATH_PREFIX}<ocppId>`);
+  logger.info(SCOPE, `Chargers can now connect at ws://<host>${OCPP_PATH_PREFIX}<ocppId>`);
 }
 
 function onConnection(socket: WebSocket, identity: AuthenticatedCharger): void {
@@ -342,14 +435,14 @@ function onConnection(socket: WebSocket, identity: AuthenticatedCharger): void {
   // stale socket the backend believes is alive.
   const superseded = registry.register(connection);
   if (superseded) {
-    logger.warn(SCOPE, `Charger connected: ${identity.ocppId} (superseded an existing connection)`);
+    logger.warn(SCOPE, `Charger ${identity.ocppId} reconnected — dropping its old connection`);
     try {
       superseded.socket.close(CLOSE_SUPERSEDED, 'Superseded by a new connection');
     } catch {
       /* already gone */
     }
   } else {
-    logger.info(SCOPE, `Charger connected: ${identity.ocppId}`);
+    logger.info(SCOPE, `Charger ${identity.ocppId} connected`);
   }
 
   socket.on('message', (data) => {
@@ -362,9 +455,10 @@ function onConnection(socket: WebSocket, identity: AuthenticatedCharger): void {
     const removed = registry.remove(identity.ocppId, socket);
     if (!removed) return;
 
-    logger.info(SCOPE, `Charger disconnected: ${identity.ocppId} (code ${code})`);
+    logger.info(SCOPE, `Charger ${identity.ocppId} disconnected: ${describeCloseCode(code)} (code ${code})`);
     void Charger.updateOne({ _id: identity.chargerId }, { $set: { isOnline: false } }).catch(
-      (error: unknown) => logger.error(SCOPE, `Failed to mark ${identity.ocppId} offline`, error),
+      (error: unknown) =>
+        logger.error(SCOPE, `Couldn't mark disconnected charger ${identity.ocppId} offline`, error),
     );
 
     // The socket died. Anything still open on this charger is finished here rather than left
@@ -375,17 +469,17 @@ function onConnection(socket: WebSocket, identity: AuthenticatedCharger): void {
       .failOpenSessionsForCharger(
         identity.chargerId,
         'ChargerDisconnected',
-        `The charger disconnected (code ${code}).`,
+        `The charger disconnected: ${describeCloseCode(code)}.`,
       )
       .catch((error: unknown) =>
-        logger.error(SCOPE, `Failed to close sessions for ${identity.ocppId}`, error),
+        logger.error(SCOPE, `Couldn't stop the open sessions on disconnected charger ${identity.ocppId}`, error),
       );
 
     void announceConnectivity(identity.chargerId, identity.companyId, identity.ocppId, false);
   });
 
   socket.on('error', (error) => {
-    logger.error(SCOPE, `Socket error for ${identity.ocppId}`, error);
+    logger.error(SCOPE, `Connection problem with charger ${identity.ocppId}`, error);
   });
 }
 

@@ -45,7 +45,11 @@ import { ROLES } from '../constants/roles';
 import { ApiError } from '../utils/ApiError';
 import { applyCompanyScope } from '../utils/companyScope';
 import type { AuthUser } from '../types/express';
-import { MAX_MAP_STATIONS, type StationStatus } from '../constants/station';
+import {
+  DEFAULT_NEAR_RADIUS_KM,
+  MAX_MAP_STATIONS,
+  type StationStatus,
+} from '../constants/station';
 import type {
   MapStationsQuery,
   PublicStationsQuery,
@@ -105,6 +109,8 @@ export interface PublicMapStation extends Availability {
   latitude: number;
   longitude: number;
   status: StationStatus;
+  /** Straight-line distance from the driver. Present only on a "near me" search. */
+  distanceKm?: number;
 }
 
 export interface MapStationsResult<T> {
@@ -339,11 +345,51 @@ export async function listPublicStations(
 
   const limit = query.limit ?? MAX_MAP_STATIONS;
 
-  const found = await Station.find(base)
-    .sort({ name: 1 })
-    .limit(limit + 1)
-    .select('name address city state latitude longitude status')
-    .lean();
+  type Found = Pick<IStation, 'name' | 'address' | 'city' | 'state' | 'latitude' | 'longitude' | 'status'> & {
+    _id: Types.ObjectId;
+    distanceM?: number;
+  };
+
+  let found: Found[];
+
+  if (query.lat !== undefined && query.lng !== undefined) {
+    /*
+     * NEAR ME — nearest first, within a radius.
+     *
+     * Done in the DATABASE with `$geoNear`, not by sorting in the browser. Browser-side sorting
+     * only works while every station fits in one response; past MAX_MAP_STATIONS the nearest
+     * charger could simply be missing from the page. `$geoNear` walks the 2dsphere index
+     * outward from the driver, so the answer stays right at any size — which is how real
+     * charging apps do it.
+     *
+     * The same two-level "who may appear" filter applies, via `query`.
+     */
+    const radiusKm = query.radiusKm ?? DEFAULT_NEAR_RADIUS_KM;
+
+    found = await Station.aggregate<Found>([
+      {
+        $geoNear: {
+          near: { type: 'Point', coordinates: [query.lng, query.lat] },
+          distanceField: 'distanceM',
+          maxDistance: radiusKm * 1000,
+          spherical: true,
+          query: base,
+        },
+      },
+      { $limit: limit + 1 },
+      {
+        $project: {
+          name: 1, address: 1, city: 1, state: 1, latitude: 1, longitude: 1, status: 1, distanceM: 1,
+        },
+      },
+    ]);
+  } else {
+    found = await Station.find(base)
+      .sort({ name: 1 })
+      .limit(limit + 1)
+      .select('name address city state latitude longitude status')
+      .lean<Found[]>();
+  }
 
   const truncated = found.length > limit;
   const stations = truncated ? found.slice(0, limit) : found;
@@ -361,6 +407,9 @@ export async function listPublicStations(
       latitude: station.latitude,
       longitude: station.longitude,
       status: station.status,
+      ...(station.distanceM !== undefined
+        ? { distanceKm: Math.round(station.distanceM / 100) / 10 }
+        : {}),
       ...(availability.get(String(station._id)) ?? NO_CHARGERS),
     })),
   };

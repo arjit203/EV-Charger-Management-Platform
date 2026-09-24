@@ -29,6 +29,7 @@ import {
   type StopReason,
 } from '../constants/session';
 import { logger } from '../utils/logger';
+import { describeChargerId, describeSession, sessionRef } from '../utils/logLabels';
 import * as realtime from '../realtime/publisher';
 import * as notify from './notification.service';
 import { assessArrears, settleSession } from './payment.service';
@@ -148,7 +149,10 @@ export async function onStartTransaction(
   const session = await ChargingSession.findOne({ idTag: input.idTag });
 
   if (!session) {
-    logger.warn(SCOPE, `StartTransaction with unknown idTag ${input.idTag} — refusing`);
+    logger.warn(
+      SCOPE,
+      `Refused a start: the charger presented tag ${input.idTag}, which doesn't match any requested session`,
+    );
     return { session: null, accepted: false, reason: 'Unknown idTag' };
   }
 
@@ -156,21 +160,26 @@ export async function onStartTransaction(
   // the SAME transaction id back, not a second one — otherwise its MeterValues would quote an
   // id we no longer recognise.
   if (session.status === 'active' && session.transactionId !== null) {
-    logger.info(SCOPE, `Duplicate StartTransaction for session ${String(session._id)} — replaying`);
+    logger.info(
+      SCOPE,
+      `Charger re-sent its start for ${await describeSession(session)}, which is already charging — ` +
+        `replying with the same transaction id ${sessionRef(session)}`,
+    );
     return { session, accepted: true };
   }
 
   if (session.status !== 'initiating') {
     logger.warn(
       SCOPE,
-      `StartTransaction for session ${String(session._id)} in status ${session.status} — refusing`,
+      `Refused a start for ${await describeSession(session)}: the session is already ` +
+        `${session.status} ${sessionRef(session)}`,
     );
     return { session: null, accepted: false, reason: `Session already ${session.status}` };
   }
 
   if (String(session.chargerId) !== input.chargerId) {
     // The tag is real but arrived from the wrong machine. Nothing legitimate does this.
-    logger.warn(SCOPE, `StartTransaction idTag ${input.idTag} presented by the wrong charger`);
+    logger.warn(SCOPE, `Refused a start: tag ${input.idTag} belongs to a session on a different charger`);
     return { session: null, accepted: false, reason: 'idTag does not belong to this charger' };
   }
 
@@ -183,7 +192,8 @@ export async function onStartTransaction(
 
   logger.info(
     SCOPE,
-    `Session ${String(session._id)} active (transaction ${String(session.transactionId)})`,
+    `Charging started on ${await describeSession(session)} ` +
+      `(OCPP transaction ${String(session.transactionId)}) ${sessionRef(session)}`,
   );
 
   // AFTER the save. This is the transition the driver has been waiting on since the 202.
@@ -315,7 +325,10 @@ export async function onStopTransaction(
   });
 
   if (!session) {
-    logger.warn(SCOPE, `StopTransaction for unknown transaction ${String(input.transactionId)}`);
+    logger.warn(
+      SCOPE,
+      `A charger said transaction ${String(input.transactionId)} ended, but no open session has that id — ignored`,
+    );
     return null;
   }
 
@@ -331,8 +344,9 @@ export async function onStopTransaction(
 
   logger.info(
     SCOPE,
-    `Session ${String(session._id)} completed: ` +
-      `${(session.energyConsumedWh / 1000).toFixed(3)} kWh (${stopReason})`,
+    `Charging finished on ${await describeSession(session)}: ` +
+      `${(session.energyConsumedWh / 1000).toFixed(3)} kWh delivered, ` +
+      `${stopReason === 'Remote' ? 'stopped from the app' : 'stopped at the charger'} ${sessionRef(session)}`,
   );
 
   realtime.emitSessionStatus(toPublicChargingSession(session));
@@ -359,7 +373,11 @@ export async function onStopTransaction(
         });
       }
     })
-    .catch((error: unknown) => logger.error(SCOPE, 'Inline settlement failed', error));
+    .catch((error: unknown) => logger.error(
+        SCOPE,
+        "Couldn't charge the driver's wallet right after the session ended — the retry job will try again",
+        error,
+      ));
 
   return session;
 }
@@ -391,8 +409,9 @@ async function failSessions(
 
     logger.warn(
       SCOPE,
-      `Session ${String(session._id)} failed: ${failureReason} ` +
-        `(${(session.energyConsumedWh / 1000).toFixed(3)} kWh recorded)`,
+      `Charging stopped unexpectedly on ${await describeSession(session)}. ${failureReason} ` +
+        `${(session.energyConsumedWh / 1000).toFixed(3)} kWh was delivered before it stopped ` +
+        `and will still be billed. ${sessionRef(session)}`,
     );
 
     // A driver watching a live session must be told it died, not left staring at a stale
@@ -483,8 +502,9 @@ export async function failOpenSessionsForCharger(
   if (released.modifiedCount > 0) {
     logger.warn(
       SCOPE,
-      `Released ${released.modifiedCount} connector(s) on charger ${chargerId} to unavailable ` +
-        `after disconnect — their charger is gone, so their state was no longer knowable.`,
+      `Set ${released.modifiedCount} connector(s) on ${await describeChargerId(chargerId)} to ` +
+        `"unavailable": the charger is offline, so we can't tell whether they are free. ` +
+        `They update again when it reconnects.`,
     );
   }
 
@@ -517,7 +537,11 @@ export async function sweepUnconfirmedSessions(): Promise<number> {
     session.failureReason = 'The charger did not confirm the start in time.';
     await session.save();
 
-    logger.warn(SCOPE, `Session ${String(session._id)} failed: start not confirmed`);
+    logger.warn(
+      SCOPE,
+      `Charging never started on ${await describeSession(session)}: the charger did not ` +
+        `confirm the start in time. ${sessionRef(session)}`,
+    );
 
     realtime.emitSessionStatus(toPublicChargingSession(session));
     void notify.sessionFailed(session);
@@ -534,7 +558,7 @@ export function startSessionSweeper(): void {
 
   sweepTimer = setInterval(() => {
     void sweepUnconfirmedSessions().catch((error: unknown) =>
-      logger.error(SCOPE, 'Session sweep failed', error),
+      logger.error(SCOPE, 'Background check for sessions the charger never confirmed failed', error),
     );
   }, SESSION_SWEEP_INTERVAL_MS);
 

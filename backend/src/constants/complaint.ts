@@ -33,56 +33,115 @@ export type ComplaintCategory = (typeof COMPLAINT_CATEGORIES)[number];
 /* -------------------------------------------------------------------------- */
 
 /**
- * Priority.
+ * Priority — an INTERNAL triage field. The driver never sets it and never sees it.
  *
- * Set by the DRIVER at creation and adjustable by staff afterwards. That is safe because
- * NOTHING HAPPENS FASTER when someone picks `high` — there is no SLA, no escalation, no routing
- * attached to it. It is signal, not a commitment, so there is nothing to win by exaggerating.
+ * Help desks (Zendesk, Freshdesk, ServiceNow) keep priority on the agent side for the reason
+ * anyone would guess: ask a customer how urgent their problem is and nearly everyone answers
+ * "high", which makes the field worthless for ordering a queue. ITIL frames priority as IMPACT
+ * × URGENCY — how many people are affected and how badly — and that is something the support
+ * side judges, not the reporter.
+ *
+ * So the system sets a STARTING priority from facts it already has (the category, and whether
+ * the charge actually failed), and any staff member can re-triage it. The driver's own sense
+ * of urgency still reaches staff — in the words they write.
  *
  * No `critical`: a fourth tier with no distinct behaviour is a tier with no consumer.
  */
 export const COMPLAINT_PRIORITIES = ['low', 'medium', 'high'] as const;
 export type ComplaintPriority = (typeof COMPLAINT_PRIORITIES)[number];
 
+/**
+ * The starting priority for each category — impact first.
+ *
+ *   charger_issue  high    a broken charger blocks EVERY driver who arrives after this one,
+ *                          and the CPO loses revenue for as long as it stays down
+ *   session_issue  medium  one driver, one charge — raised to high when the session actually
+ *                          FAILED (see complaint.service), because that driver may be stranded
+ *   payment_issue  medium  money matters, but a disputed amount can be corrected later
+ *   station_issue  medium  blocked bay, lighting, access
+ *   account_issue  medium  one person, usually no hardware involved
+ *   other          low     staff re-triage once they have read it
+ */
+export const DEFAULT_PRIORITY_BY_CATEGORY: Record<ComplaintCategory, ComplaintPriority> = {
+  charger_issue: 'high',
+  session_issue: 'medium',
+  payment_issue: 'medium',
+  station_issue: 'medium',
+  account_issue: 'medium',
+  other: 'low',
+};
+
 /* -------------------------------------------------------------------------- */
 
 /**
- * Lifecycle.
+ * Lifecycle — the shape Zendesk, Freshdesk and Jira Service Management all share.
  *
- *   open ──▶ in_progress ──▶ resolved ──▶ closed
- *     ▲            │
- *     └────────────┘
+ *              ┌─────────── reopen (driver, with a reason) ───────────┐
+ *              ▼                                                      │
+ *   open ◀──▶ in_progress ──▶ resolved ──▶ closed                     │
+ *     │            │             └────────────────────────────────────┘
+ *     └────────────┴──▶ closed   (admin only, with a note: duplicate / invalid / spam)
  *
- * `closed` is TERMINAL. A driver who says "it is still broken" files a NEW complaint that may
- * reference the old one — mutating a closed ticket back open destroys the record of what was
- * concluded and when, which is the whole point of keeping one.
+ * RESOLVED IS NOT CLOSED. `resolved` means "staff believe it is fixed" — a claim the driver can
+ * still dispute. `closed` means "finished, no more changes" and is TERMINAL. The gap between them
+ * is the driver's window to say "no, it is still broken":
  *
- * No `rejected`: an invalid complaint moves to `closed` with a resolution note explaining why.
- * A parallel terminal state with no distinct behaviour is the same thing `cancelled` would have
- * been in Module 7 — a branch nobody walks.
+ *   - the driver CONFIRMS          -> closed
+ *   - the driver REOPENS (reason)  -> open, back in the staff queue
+ *   - nobody does anything         -> closed automatically after AUTO_CLOSE_AFTER_MS
+ *
+ * `closed` stays terminal. A driver whose problem comes back after closure files a NEW complaint
+ * linked with `followUpOf` — mutating a closed ticket back open would destroy the record of what
+ * was concluded and when, which is the whole point of keeping one.
+ *
+ * No `rejected` state: an invalid complaint is closed directly with a note saying why.
  */
 export const COMPLAINT_STATUSES = ['open', 'in_progress', 'resolved', 'closed'] as const;
 export type ComplaintStatus = (typeof COMPLAINT_STATUSES)[number];
 
 /**
- * THE TRANSITION TABLE. A table, not prose — the same discipline as Module 9's activation
- * ordering. Anything not listed here is a 409 naming the current status.
+ * THE TRANSITION TABLE for STAFF. A table, not prose. Anything not listed is a 409 naming the
+ * current status. The driver's two moves (confirm, reopen) have their own endpoints and are not
+ * in this table, because they are a different actor making a different claim.
  *
- * `in_progress -> open` is the one permitted backward move: work legitimately pauses while a
- * ticket waits on the driver or gets reassigned. Everything else moves forward or not at all.
+ * `in_progress -> open` is a legitimate backward move: work pauses while a ticket waits on the
+ * driver or goes back to the queue for someone else to pick up.
+ *
+ * `resolved -> open` lets an ADMIN take back a resolution they got wrong, before the driver has
+ * to reopen it themselves.
  */
 export const ALLOWED_TRANSITIONS: Record<ComplaintStatus, ComplaintStatus[]> = {
-  open: ['in_progress'],
-  in_progress: ['open', 'resolved'],
-  resolved: ['closed'],
+  open: ['in_progress', 'closed'],
+  in_progress: ['open', 'resolved', 'closed'],
+  resolved: ['open', 'closed'],
   closed: [],
 };
 
 /**
- * Transitions that CONCLUDE a support interaction, restricted to cpo_admin and super_admin.
+ * Transitions an operator may NOT make.
  *
- * An operator is field staff: acknowledging and working a ticket is the job, formally closing
- * one is an administrative act — especially one that may touch a payment dispute, where the
- * resolution note is the only record of what was decided.
+ * An operator is field staff: acknowledging and working a ticket is the job. Concluding one, or
+ * overturning a conclusion, is an administrative act — especially on a payment dispute, where
+ * the resolution note is the only record of what was decided.
  */
-export const CONCLUDING_TRANSITIONS: ComplaintStatus[] = ['resolved', 'closed'];
+export const ADMIN_ONLY_TRANSITIONS: { from: ComplaintStatus | '*'; to: ComplaintStatus }[] = [
+  { from: '*', to: 'resolved' },
+  { from: '*', to: 'closed' },
+  { from: 'resolved', to: 'open' },
+];
+
+/**
+ * How long a resolved complaint waits for the driver before closing itself.
+ *
+ * Seven days is a common help-desk default (Zendesk's is four, Freshdesk's is configurable). Long
+ * enough for a driver to return to the same charger and find out whether it really was fixed;
+ * short enough that the queue does not fill with tickets nobody will ever touch again.
+ */
+export const AUTO_CLOSE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** How often the auto-close sweep runs. Hourly is plenty for a seven-day window. */
+export const COMPLAINT_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
+
+/** Who made a change, as recorded in a complaint's history. `system` is the auto-close sweep. */
+export const COMPLAINT_ACTORS = ['driver', 'operator', 'cpo_admin', 'super_admin', 'system'] as const;
+export type ComplaintActor = (typeof COMPLAINT_ACTORS)[number];

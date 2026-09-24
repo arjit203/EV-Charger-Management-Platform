@@ -21,6 +21,8 @@ import {
 import { assertChargerInScope } from './charger.service';
 import type { ConnectorStatus } from '../constants/connector';
 import { ApiError } from '../utils/ApiError';
+import { DC_ONLY_CONNECTOR_TYPES, type ConnectorType } from '../constants/connector';
+import type { ChargerType } from '../constants/charger';
 import type { AuthUser } from '../types/express';
 import type {
   CreateConnectorInput,
@@ -63,6 +65,16 @@ export async function getConnector(
   return toPublicConnector(connector);
 }
 
+/** CCS2 and CHAdeMO are DC by definition — see DC_ONLY_CONNECTOR_TYPES. */
+function assertPlugFitsCharger(chargerType: ChargerType, connectorType: ConnectorType): void {
+  if (chargerType === 'AC' && DC_ONLY_CONNECTOR_TYPES.includes(connectorType)) {
+    throw ApiError.validation(
+      `${connectorType} is a DC-only plug, so it cannot be fitted to an AC charger. Use Type 2 or GB/T, or mark the charger as DC.`,
+      { field: 'connectorType' },
+    );
+  }
+}
+
 export async function createConnector(
   actor: AuthUser,
   chargerId: string,
@@ -80,6 +92,8 @@ export async function createConnector(
     throw ApiError.conflict(`This charger already has a connector numbered ${input.connectorNumber}.`);
   }
 
+  assertPlugFitsCharger(charger.chargerType, input.connectorType);
+
   const connector = await Connector.create({ ...input, chargerId: charger._id });
   return toPublicConnector(connector);
 }
@@ -94,6 +108,8 @@ export async function updateConnector(
 
   const connector = await Connector.findOne({ _id: connectorId, chargerId: charger._id });
   if (!connector) throw connectorNotFound();
+
+  if (input.connectorType) assertPlugFitsCharger(charger.chargerType, input.connectorType);
 
   if (input.connectorNumber && input.connectorNumber !== connector.connectorNumber) {
     const clash = await Connector.findOne({

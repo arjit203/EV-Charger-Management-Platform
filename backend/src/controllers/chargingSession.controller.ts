@@ -94,3 +94,11 @@ export const getConnectorForCharging = asyncHandler(async (req: Request, res: Re
   const connector = await sessionService.getConnectorForCharging(String(req.params.connectorId));
   sendSuccess(res, { connector }, 'Connector retrieved');
 });
+
+/** GET /charging/stations/:stationId/connectors — every plug at one station. */
+export const listStationConnectorsForCharging = asyncHandler(async (req: Request, res: Response) => {
+  const connectors = await sessionService.listConnectorsForChargingAtStation(
+    String(req.params.stationId),
+  );
+  sendSuccess(res, { connectors }, 'Connectors retrieved');
+});

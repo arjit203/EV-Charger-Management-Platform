@@ -64,7 +64,16 @@ export function StationList({
                   : 'hover:bg-neutral-500/5'
               }`}
             >
-              <p className="text-sm font-medium">{station.name}</p>
+              <p className="flex items-baseline justify-between gap-2 text-sm font-medium">
+                <span>{station.name}</span>
+                {'distanceKm' in station && station.distanceKm !== undefined && (
+                  <span className="shrink-0 text-xs font-normal tabular-nums text-neutral-500">
+                    {station.distanceKm < 1
+                      ? `${Math.round(station.distanceKm * 1000)} m`
+                      : `${station.distanceKm} km`}
+                  </span>
+                )}
+              </p>
               <p className="mt-0.5 text-xs text-neutral-500">
                 {station.address}, {station.city}
               </p>

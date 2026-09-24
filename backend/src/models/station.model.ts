@@ -30,6 +30,11 @@ export interface IStation {
   postalCode?: string;
   latitude: number;
   longitude: number;
+  /**
+   * GeoJSON copy of latitude/longitude, for "stations near me". DERIVED — never written
+   * directly; the pre-validate hook below keeps it in step with the two plain numbers.
+   */
+  location?: { type: 'Point'; coordinates: [number, number] };
   status: StationStatus;
   contactPhone?: string;
   openingHours?: string;
@@ -62,12 +67,20 @@ const stationSchema = new Schema<IStation, StationModel>(
     country: { type: String, required: true, trim: true, maxlength: 100 },
     postalCode: { type: String, trim: true, maxlength: 20 },
 
-    // Stored as plain numbers. Module 14's map reads these directly. A GeoJSON `location`
-    // field plus a 2dsphere index will be added THEN, when there is an actual "stations
-    // near me" query — that is an additive migration backfilled from these two fields, not
-    // a breaking change. An unused geo index would cost write performance for nothing today.
+    // The source of truth for position, and what the maps read. `location` below is derived
+    // from these two — the additive migration this comment used to promise, now that
+    // "stations near me" exists.
     latitude: { type: Number, required: true, min: -90, max: 90 },
     longitude: { type: Number, required: true, min: -180, max: 180 },
+
+    /**
+     * GeoJSON Point for geospatial queries. Note the order: GeoJSON is [LONGITUDE, LATITUDE],
+     * the reverse of how people say coordinates — the single most common geo bug.
+     */
+    location: {
+      type: { type: String, enum: ['Point'], default: undefined },
+      coordinates: { type: [Number], default: undefined },
+    },
 
     status: { type: String, enum: STATION_STATUSES, required: true, default: 'active', index: true },
 
@@ -96,6 +109,20 @@ stationSchema.index({ companyId: 1, stationCode: 1 }, { unique: true });
 
 /** The common list view: "my company's active stations". */
 stationSchema.index({ companyId: 1, status: 1 });
+
+/** "Stations near me" — `$geoNear` requires a 2dsphere index and refuses to run without one. */
+stationSchema.index({ location: '2dsphere' });
+
+/**
+ * Keep `location` in step with latitude/longitude on every create and save. Every write path
+ * in the services goes through `create()` or `save()`, so this is the one place it can drift
+ * — and it cannot, because it is recomputed every time.
+ */
+stationSchema.pre('validate', function syncLocation() {
+  if (typeof this.latitude === 'number' && typeof this.longitude === 'number') {
+    this.location = { type: 'Point', coordinates: [this.longitude, this.latitude] };
+  }
+});
 
 export const Station = model<IStation, StationModel>('Station', stationSchema);
 

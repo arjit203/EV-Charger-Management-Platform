@@ -7,6 +7,7 @@
  */
 
 import { z } from 'zod';
+import { CONNECTOR_TYPES } from '../constants/connector';
 
 import { CHARGER_STATUSES, CHARGER_TYPES } from '../constants/charger';
 
@@ -67,6 +68,13 @@ export const listChargersQuerySchema = z
     stationId: objectId.optional(),
     status: z.enum(CHARGER_STATUSES).optional(),
     chargerType: z.enum(CHARGER_TYPES).optional(),
+    /** Chargers with at least one plug of this standard. */
+    connectorType: z.enum(CONNECTOR_TYPES).optional(),
+    /** Live connectivity — the first thing an operator filters on in a real CMS. */
+    isOnline: z
+      .enum(['true', 'false'])
+      .transform((value) => value === 'true')
+      .optional(),
     manufacturer: z.string().trim().min(1).max(100).optional(),
     /** super_admin only. A company-scoped caller naming another company gets 403. */
     companyId: objectId.optional(),
