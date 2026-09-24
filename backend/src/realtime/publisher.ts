@@ -43,6 +43,7 @@ import { logger } from '../utils/logger';
 import { describeCompany, describeUser } from '../utils/logLabels';
 import { companyAudience, sessionAudience, userRoom } from './rooms';
 import type { PublicChargingSession } from '../models/chargingSession.model';
+import { forgetSessionLabels, labelsForSession } from './sessionLabels';
 
 const SCOPE = 'realtime';
 
@@ -161,11 +162,19 @@ export function emitChargerHardwareStatus(event: Omit<ChargerHardwareStatusEvent
  * driver charging at another company's station is not in that company's room.
  */
 export function emitSessionStatus(session: PublicChargingSession): void {
+  // Attach the names resolved when the session started (see sessionLabels.ts), so a live row can
+  // say which station and charger — synchronously, so emits cannot reorder.
+  const labels = labelsForSession(session.id);
   publish(
     sessionAudience(session.companyId, session.userId),
     'session:statusChanged',
-    { session },
+    { session: labels ? { ...labels, ...session } : session },
   );
+
+  if (session.status === 'completed' || session.status === 'failed') {
+    // A settlement re-emit may follow shortly; keep the entry a little longer than the session.
+    setTimeout(() => forgetSessionLabels(session.id), 60_000).unref();
+  }
 }
 
 export interface MeterUpdateEvent {

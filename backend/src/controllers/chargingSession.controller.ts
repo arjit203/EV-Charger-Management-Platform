@@ -42,7 +42,11 @@ export const startSession = asyncHandler(async (req: Request, res: Response) => 
 
 /** POST /charging/sessions/:sessionId/stop */
 export const stopSession = asyncHandler(async (req: Request, res: Response) => {
-  const session = await sessionService.stopSession(requireUser(req), String(req.params.sessionId));
+  const session = await sessionService.stopSession(
+    requireUser(req),
+    String(req.params.sessionId),
+    (req.body as { reason?: string }).reason,
+  );
 
   const message =
     session.status === 'stopping' ? 'Charging stop requested' : `Session ${session.status}`;

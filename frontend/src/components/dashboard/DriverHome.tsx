@@ -22,14 +22,19 @@
  * ============================================================================
  */
 
+import { useCallback } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+
+import { useAsyncData } from '@/hooks/useAsyncData';
+import { useSocketEvent } from '@/hooks/useSocketEvent';
+import { getActiveSession } from '@/services/session.service';
+import { describeWhere, formatEnergy } from '@/components/SessionSummary';
+import type { ChargingSession } from '@/types/api';
 
 import { StatusBadge } from '@/components/StatusBadge';
-import { NotificationBell } from '@/components/NotificationBell';
 import { useAuth } from '@/context/AuthContext';
 import { ROLE_LABELS } from '@/types/api';
-import { buttonClasses } from '@/components/ui/Button';
+import { formatDateTime } from '@/lib/datetime';
 
 /** What a driver can do here. */
 const DRIVER_CAPABILITIES: string[] = [
@@ -59,16 +64,44 @@ const DRIVER_LINKS: { href: string; label: string }[] = [
   { href: '/profile', label: 'My profile' },
 ];
 
+/**
+ * THE CHARGE IN PROGRESS, first thing on the home screen — every charging app does this, because
+ * "is my car still charging?" is the question a driver opens the app to answer. Updates live, and
+ * disappears when the charge ends (including when the operator stops it).
+ */
+function CurrentCharge() {
+  const load = useCallback(() => getActiveSession(), []);
+  const { state, reload } = useAsyncData(load);
+
+  useSocketEvent<{ session: ChargingSession }>('session:statusChanged', () => {
+    void reload();
+  });
+
+  if (state.status !== 'ok' || !state.data) return null;
+  const active = state.data;
+
+  return (
+    <Link
+      href={`/sessions/${active.id}`}
+      className="block rounded-xl border border-emerald-600/40 bg-emerald-500/10 p-5 transition-colors hover:bg-emerald-500/15"
+    >
+      <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
+        {active.status === 'initiating' ? 'Starting your charge…' : active.status === 'stopping' ? 'Stopping…' : 'Charging now'}
+      </p>
+      <p className="mt-1 text-lg font-semibold tabular-nums">{formatEnergy(active)}</p>
+      <p className="mt-0.5 text-sm text-neutral-600 dark:text-neutral-400">
+        {describeWhere(active) || 'Your current session'}
+        {active.chargerName ? ` · ${active.chargerName} #${active.connectorNumber}` : ''}
+      </p>
+      <p className="mt-2 text-xs font-medium text-emerald-700 dark:text-emerald-400">View or stop &rarr;</p>
+    </Link>
+  );
+}
+
 export function DriverHome() {
-  const { user, logout } = useAuth();
-  const router = useRouter();
+  const { user } = useAuth();
 
   if (!user) return null; // RequireAuth guarantees this, but TypeScript cannot know it
-
-  function handleLogout() {
-    logout();
-    router.replace('/login');
-  }
 
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-16">
@@ -79,18 +112,10 @@ export function DriverHome() {
           </p>
           <h1 className="mt-1 text-2xl font-semibold">Welcome, {user.name}</h1>
         </div>
-        <div className="flex items-center gap-2">
-          {/* Module 12 — live unread badge, fed by the user room Module 8 already assigns. */}
-          <NotificationBell />
-          <button
-            type="button"
-            onClick={handleLogout}
-            className={buttonClasses('secondary')}
-          >
-            Sign out
-          </button>
-        </div>
+        {/* The bell and Sign out live in the shared header now — not repeated here. */}
       </header>
+
+      <CurrentCharge />
 
       <section className="rounded-xl border border-neutral-200 p-5 dark:border-neutral-800">
         <div className="flex flex-wrap items-center gap-2">
@@ -108,12 +133,9 @@ export function DriverHome() {
           <dt className="text-neutral-500">Phone</dt>
           <dd className="font-mono text-xs">{user.phone ?? '—'}</dd>
 
-          <dt className="text-neutral-500">Role</dt>
-          <dd className="font-mono text-xs">{user.role}</dd>
-
           <dt className="text-neutral-500">Last login</dt>
           <dd className="font-mono text-xs">
-            {user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : 'first session'}
+            {user.lastLoginAt ? formatDateTime(user.lastLoginAt) : 'first session'}
           </dd>
         </dl>
 
@@ -145,9 +167,6 @@ export function DriverHome() {
         </ul>
       </section>
 
-      <Link href="/" className="text-sm text-neutral-500 underline underline-offset-4">
-        System status
-      </Link>
     </main>
   );
 }

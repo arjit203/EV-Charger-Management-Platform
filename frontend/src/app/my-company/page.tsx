@@ -11,7 +11,6 @@
  */
 
 import { useCallback } from 'react';
-import Link from 'next/link';
 
 import { RequireAuth } from '@/components/RequireAuth';
 import { StatusBadge } from '@/components/StatusBadge';
@@ -40,7 +39,6 @@ function MyCompanyContent() {
         <p className="text-sm text-neutral-500">Loading&hellip;</p>
       ) : state.status === 'error' ? (
         <div className="space-y-2">
-          <StatusBadge tone="bad" label={`HTTP ${state.error.status}`} />
           <p className="text-sm font-medium">{state.error.message}</p>
           {state.error.errorCode === 'COMPANY_SUSPENDED' ? (
             <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
@@ -87,9 +85,6 @@ function MyCompanyContent() {
         </section>
       )}
 
-      <Link href="/dashboard" className="text-sm text-neutral-500 underline underline-offset-4">
-        Back to dashboard
-      </Link>
     </main>
   );
 }

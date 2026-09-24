@@ -15,9 +15,14 @@ import { Types } from 'mongoose';
 import { Complaint, toPublicComplaint, type ComplaintDocument, type PublicComplaint } from '../models/complaint.model';
 import { ChargingSession } from '../models/chargingSession.model';
 import { Charger } from '../models/charger.model';
+import { Company } from '../models/company.model';
+import { Connector } from '../models/connector.model';
+import { Station } from '../models/station.model';
+import { User } from '../models/user.model';
 import {
   ADMIN_ONLY_TRANSITIONS,
   ALLOWED_TRANSITIONS,
+  OPERATOR_RESOLVABLE_CATEGORIES,
   AUTO_CLOSE_AFTER_MS,
   COMPLAINT_SWEEP_INTERVAL_MS,
   DEFAULT_PRIORITY_BY_CATEGORY,
@@ -77,6 +82,129 @@ async function assertComplaintInScope(
   const complaint = await Complaint.findOne(applyReadScope(actor, { _id: complaintId }));
   if (!complaint) throw notFoundOrForbidden(actor);
   return complaint;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Context — who, where, which machine                                        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The facts a ticket is useless without, resolved at read time from the ids it already stores.
+ *
+ * A complaint used to carry only ids, so the queue said "Cable will not unlock" and nothing else —
+ * not who reported it, not which station, not which charger. A week later nobody could tell which
+ * site a resolved ticket had been about. Every help desk puts the requester and the asset on the
+ * ticket header for exactly this reason.
+ *
+ * Batched: one query per collection for the whole page, never per row. The DRIVER gets the
+ * location facts (it is their own report) but nothing internal — no work notes, no assignee, no
+ * OCPP id.
+ */
+export interface ComplaintContext {
+  reporter?: { name: string; email: string; phone: string | null } | null;
+  companyName: string | null;
+  station: { id: string; name: string; address: string; city: string } | null;
+  charger: { id: string; name: string; ocppId?: string } | null;
+  connectorNumber: number | null;
+  assigneeName?: string | null;
+}
+
+export type ComplaintWithContext = PublicComplaint & ComplaintContext;
+
+async function withComplaintContext(
+  actor: AuthUser,
+  complaints: ComplaintDocument[],
+): Promise<ComplaintWithContext[]> {
+  if (complaints.length === 0) return [];
+
+  const isStaff = actor.role !== ROLES.DRIVER;
+  const ids = (pick: (c: ComplaintDocument) => Types.ObjectId | null | undefined) => [
+    ...new Set(complaints.map(pick).filter(Boolean).map(String)),
+  ];
+
+  const userIds = isStaff
+    ? [
+        ...new Set([
+          ...ids((c) => c.userId),
+          ...ids((c) => c.assignedTo),
+          ...complaints.flatMap((c) => (c.notes ?? []).map((n) => String(n.byUserId))),
+        ]),
+      ]
+    : [];
+
+  const [companies, stations, chargers, connectors, users] = await Promise.all([
+    Company.find({ _id: { $in: ids((c) => c.companyId) } }).select('name').lean(),
+    Station.find({ _id: { $in: ids((c) => c.stationId) } }).select('name address city').lean(),
+    Charger.find({ _id: { $in: ids((c) => c.chargerId) } }).select('name ocppId').lean(),
+    Connector.find({ _id: { $in: ids((c) => c.connectorId) } }).select('connectorNumber').lean(),
+    userIds.length ? User.find({ _id: { $in: userIds } }).select('name email phone').lean() : [],
+  ]);
+
+  const companyById = new Map(companies.map((c) => [String(c._id), c]));
+  const stationById = new Map(stations.map((s) => [String(s._id), s]));
+  const chargerById = new Map(chargers.map((c) => [String(c._id), c]));
+  const connectorById = new Map(connectors.map((c) => [String(c._id), c]));
+  const userById = new Map(users.map((u) => [String(u._id), u]));
+
+  return complaints.map((complaint) => {
+    const base = toPublicComplaint(complaint);
+    const station = complaint.stationId ? stationById.get(String(complaint.stationId)) : undefined;
+    const charger = complaint.chargerId ? chargerById.get(String(complaint.chargerId)) : undefined;
+    const connector = complaint.connectorId
+      ? connectorById.get(String(complaint.connectorId))
+      : undefined;
+
+    const context: ComplaintContext = {
+      companyName: complaint.companyId
+        ? (companyById.get(String(complaint.companyId))?.name ?? null)
+        : null,
+      station: station
+        ? { id: String(station._id), name: station.name, address: station.address, city: station.city }
+        : null,
+      charger: charger
+        ? { id: String(charger._id), name: charger.name, ...(isStaff ? { ocppId: charger.ocppId } : {}) }
+        : null,
+      connectorNumber: connector?.connectorNumber ?? null,
+    };
+
+    if (!isStaff) {
+      // Internal triage stays internal: the driver sees what happened, not who is on it.
+      // Nor a draft reply: the driver sees `resolution` only once staff have actually concluded.
+      const concluded = complaint.status === 'resolved' || complaint.status === 'closed';
+      return {
+        ...base,
+        resolution: concluded ? base.resolution : null,
+        notes: undefined,
+        assignedTo: null,
+        assignedAt: null,
+        ...context,
+      };
+    }
+
+    const reporter = userById.get(String(complaint.userId));
+    return {
+      ...base,
+      notes: (base.notes ?? []).map((note) => ({
+        ...note,
+        byName: userById.get(note.byUserId)?.name ?? null,
+      })),
+      ...context,
+      reporter: reporter
+        ? { name: reporter.name, email: reporter.email, phone: reporter.phone ?? null }
+        : null,
+      assigneeName: complaint.assignedTo
+        ? (userById.get(String(complaint.assignedTo))?.name ?? null)
+        : null,
+    };
+  });
+}
+
+async function withOneComplaintContext(
+  actor: AuthUser,
+  complaint: ComplaintDocument,
+): Promise<ComplaintWithContext> {
+  const [labelled] = await withComplaintContext(actor, [complaint]);
+  return labelled;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -203,7 +331,7 @@ async function initialPriority(
 export async function createComplaint(
   actor: AuthUser,
   input: CreateComplaintInput,
-): Promise<PublicComplaint> {
+): Promise<ComplaintWithContext> {
   let anchor: ResolvedAnchor;
   let followUpOf: Types.ObjectId | null = null;
 
@@ -257,7 +385,7 @@ export async function createComplaint(
 
   void notify.complaintCreated(complaint);
 
-  return toPublicComplaint(complaint);
+  return withOneComplaintContext(actor, complaint);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -267,7 +395,7 @@ export async function createComplaint(
 export async function listComplaints(
   actor: AuthUser,
   query: ListComplaintsQuery,
-): Promise<Paginated<PublicComplaint>> {
+): Promise<Paginated<ComplaintWithContext>> {
   const filter: Record<string, unknown> = {};
 
   if (query.status) filter.status = query.status;
@@ -275,6 +403,12 @@ export async function listComplaints(
   if (query.priority) filter.priority = query.priority;
   if (query.stationId) filter.stationId = new Types.ObjectId(query.stationId);
   if (query.chargerId) filter.chargerId = new Types.ObjectId(query.chargerId);
+
+  // "My tickets" and "nobody has this yet" — the two views a support shift actually works from.
+  if (actor.role !== ROLES.DRIVER) {
+    if (query.assigned === 'me') filter.assignedTo = new Types.ObjectId(actor.id);
+    if (query.assigned === 'unassigned') filter.assignedTo = null;
+  }
 
   const scoped = applyReadScope(actor, filter);
 
@@ -287,7 +421,7 @@ export async function listComplaints(
   ]);
 
   return {
-    items: items.map(toPublicComplaint),
+    items: await withComplaintContext(actor, items),
     page,
     limit,
     total,
@@ -340,11 +474,11 @@ export async function getComplaintContext(
 export async function getComplaintById(
   actor: AuthUser,
   complaintId: string,
-): Promise<{ complaint: PublicComplaint; session: DisputedSessionView | null }> {
+): Promise<{ complaint: ComplaintWithContext; session: DisputedSessionView | null }> {
   const complaint = await assertComplaintInScope(actor, complaintId);
 
   return {
-    complaint: toPublicComplaint(complaint),
+    complaint: await withOneComplaintContext(actor, complaint),
     session: await getComplaintContext(complaint),
   };
 }
@@ -368,7 +502,7 @@ export async function updateComplaint(
   actor: AuthUser,
   complaintId: string,
   input: UpdateComplaintInput,
-): Promise<PublicComplaint> {
+): Promise<ComplaintWithContext> {
   const complaint = await assertComplaintInScope(actor, complaintId);
 
   if (complaint.status === 'closed') {
@@ -377,12 +511,26 @@ export async function updateComplaint(
 
   if (input.priority !== undefined) complaint.priority = input.priority;
 
-  // Interim notes. An operator can record what they found without concluding the ticket.
+  // A DRAFT of the reply the driver will receive when the ticket is resolved.
   if (input.resolution !== undefined) complaint.resolution = input.resolution;
+
+  /*
+   * An internal work note — APPENDED, attributed and timed, never overwriting the last one.
+   * "Reset remotely, no change" from the operator at 09:10 and "Replaced the contactor" from the
+   * engineer at 14:00 are both the record.
+   */
+  if (input.note !== undefined) {
+    complaint.notes.push({
+      byUserId: new Types.ObjectId(actor.id),
+      byRole: actor.role,
+      text: input.note,
+      at: new Date(),
+    });
+  }
 
   await complaint.save();
 
-  return toPublicComplaint(complaint);
+  return withOneComplaintContext(actor, complaint);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -444,10 +592,10 @@ export async function setComplaintStatus(
   complaintId: string,
   status: ComplaintStatus,
   resolution?: string,
-): Promise<PublicComplaint> {
+): Promise<ComplaintWithContext> {
   const complaint = await assertComplaintInScope(actor, complaintId);
 
-  if (complaint.status === status) return toPublicComplaint(complaint);
+  if (complaint.status === status) return withOneComplaintContext(actor, complaint);
 
   const allowed = ALLOWED_TRANSITIONS[complaint.status];
 
@@ -462,7 +610,17 @@ export async function setComplaintStatus(
 
   if (actor.role === ROLES.OPERATOR && isAdminOnly(complaint.status, status)) {
     throw ApiError.forbidden(
-      'Only an administrator can resolve, close or reopen a resolved complaint. You can move it between open and in progress and add notes.',
+      'Only an administrator can close a complaint or reopen a resolved one. You can work it, add notes, and resolve hardware and site problems.',
+    );
+  }
+
+  if (
+    actor.role === ROLES.OPERATOR &&
+    status === 'resolved' &&
+    !OPERATOR_RESOLVABLE_CATEGORIES.includes(complaint.category)
+  ) {
+    throw ApiError.forbidden(
+      "Only an administrator can resolve a payment or account complaint — it ends in a decision about the driver's money or account. Add your findings as a note and leave it for an admin.",
     );
   }
 
@@ -488,11 +646,23 @@ export async function setComplaintStatus(
       );
     }
     complaint.resolution = note;
-  } else if (note) {
-    complaint.resolution = note;
   }
+  /*
+   * A note on any OTHER move (open <-> in_progress, taking back a resolution) is a history note
+   * only. It used to overwrite `resolution` too — which is the text the DRIVER reads as the
+   * answer — so an operator's half-written draft went out as "the resolution" before anyone
+   * resolved anything.
+   */
 
   const previous = applyTransition(complaint, status, { role: actor.role, userId: actor.id }, note);
+
+  // Picking a ticket up IS taking it. Whoever starts work on an unowned ticket becomes its owner,
+  // so "in progress" never means "in progress by nobody in particular".
+  if (status === 'in_progress' && !complaint.assignedTo) {
+    complaint.assignedTo = new Types.ObjectId(actor.id);
+    complaint.assignedAt = new Date();
+  }
+
   await complaint.save();
 
   logger.info(
@@ -502,7 +672,62 @@ export async function setComplaintStatus(
 
   void notify.complaintUpdated(complaint, status, complaint.resolution, complaint.history.length);
 
-  return toPublicComplaint(complaint);
+  return withOneComplaintContext(actor, complaint);
+}
+
+/**
+ * Give a ticket an owner, or put it back in the pool. STAFF.
+ *
+ *   operator   may take a ticket, or release one they hold — not hand work to colleagues
+ *   admins     may assign it to any active staff member who can see it
+ *
+ * "Can see it" is the constraint that matters: staff of the complaint's company, or the platform
+ * admin. Otherwise a ticket could be assigned to someone the company scope then hides it from.
+ */
+export async function assignComplaint(
+  actor: AuthUser,
+  complaintId: string,
+  assigneeId: string | null,
+): Promise<ComplaintWithContext> {
+  const complaint = await assertComplaintInScope(actor, complaintId);
+
+  if (complaint.status === 'closed') {
+    throw ApiError.conflict('This complaint is closed; there is nothing left to assign.');
+  }
+
+  if (actor.role === ROLES.OPERATOR) {
+    const held = complaint.assignedTo ? String(complaint.assignedTo) : null;
+    const takingIt = assigneeId === actor.id;
+    const releasingOwn = assigneeId === null && held === actor.id;
+    if (!takingIt && !releasingOwn) {
+      throw ApiError.forbidden('Operators can take a ticket or release their own. Ask an admin to reassign it.');
+    }
+  }
+
+  if (assigneeId) {
+    const assignee = await User.findOne({ _id: assigneeId, status: 'active' }).select('role companyId');
+    const canSee =
+      assignee !== null &&
+      (assignee.role === ROLES.SUPER_ADMIN ||
+        ((assignee.role === ROLES.CPO_ADMIN || assignee.role === ROLES.OPERATOR) &&
+          complaint.companyId !== null &&
+          String(assignee.companyId) === String(complaint.companyId)));
+
+    if (!canSee) {
+      throw ApiError.validation('That person cannot be assigned: they are not staff who can see this complaint.');
+    }
+  }
+
+  complaint.assignedTo = assigneeId ? new Types.ObjectId(assigneeId) : null;
+  complaint.assignedAt = assigneeId ? new Date() : null;
+  await complaint.save();
+
+  logger.info(
+    SCOPE,
+    `${actor.email} ${assigneeId ? 'assigned' : 'unassigned'} complaint "${complaint.subject}" [complaint ${complaintId}]`,
+  );
+
+  return withOneComplaintContext(actor, complaint);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -519,7 +744,7 @@ export async function setComplaintStatus(
 export async function confirmComplaintResolved(
   actor: AuthUser,
   complaintId: string,
-): Promise<PublicComplaint> {
+): Promise<ComplaintWithContext> {
   const complaint = await assertComplaintInScope(actor, complaintId);
 
   if (complaint.status !== 'resolved') {
@@ -533,7 +758,7 @@ export async function confirmComplaintResolved(
 
   logger.info(SCOPE, `${actor.email} confirmed complaint "${complaint.subject}" is fixed — closed [complaint ${complaintId}]`);
 
-  return toPublicComplaint(complaint);
+  return withOneComplaintContext(actor, complaint);
 }
 
 /**
@@ -550,7 +775,7 @@ export async function reopenComplaint(
   actor: AuthUser,
   complaintId: string,
   reason: string,
-): Promise<PublicComplaint> {
+): Promise<ComplaintWithContext> {
   const complaint = await assertComplaintInScope(actor, complaintId);
 
   if (complaint.status !== 'resolved') {
@@ -571,7 +796,7 @@ export async function reopenComplaint(
 
   void notify.complaintReopened(complaint, reason.trim(), complaint.history.length);
 
-  return toPublicComplaint(complaint);
+  return withOneComplaintContext(actor, complaint);
 }
 
 /* -------------------------------------------------------------------------- */

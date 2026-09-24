@@ -148,3 +148,18 @@ export function getPublicStations(
     cache: 'no-store',
   });
 }
+
+/**
+ * The cities that actually have stations — the options for the City dropdown.
+ *
+ * A dropdown rather than a text box because the filter matches EXACTLY: typing "Delhi" for a
+ * station stored as "New Delhi" returned nothing and looked broken. Picking the stored value
+ * cannot miss. Drivers and staff get different lists, matching the two station reads.
+ */
+export async function listStationCities(audience: 'staff' | 'driver'): Promise<string[]> {
+  const { cities } = await apiRequest<{ cities: string[] }>(
+    audience === 'driver' ? '/stations/public/cities' : '/stations/cities',
+    { cache: 'no-store' },
+  );
+  return cities;
+}

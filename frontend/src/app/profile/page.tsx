@@ -11,7 +11,6 @@
  */
 
 import { useState } from 'react';
-import Link from 'next/link';
 
 import { FormField } from '@/components/FormField';
 import { RequireAuth } from '@/components/RequireAuth';
@@ -21,6 +20,7 @@ import { extractFieldErrors, toMessage } from '@/lib/formatApiError';
 import { updateMyProfile } from '@/services/user.service';
 import { ROLE_LABELS } from '@/types/api';
 import { buttonClasses } from '@/components/ui/Button';
+import { formatDate } from '@/lib/datetime';
 
 function ProfileContent() {
   const { user, updateCurrentUser } = useAuth();
@@ -74,7 +74,7 @@ function ProfileContent() {
           <dt className="text-neutral-500">Email</dt>
           <dd className="font-mono text-xs">{user.email}</dd>
           <dt className="text-neutral-500">Member since</dt>
-          <dd className="text-xs">{new Date(user.createdAt).toLocaleDateString()}</dd>
+          <dd className="text-xs">{formatDate(user.createdAt)}</dd>
         </dl>
 
         <p className="mt-3 text-xs text-neutral-500">
@@ -112,9 +112,6 @@ function ProfileContent() {
         </button>
       </form>
 
-      <Link href="/dashboard" className="text-sm text-neutral-500 underline underline-offset-4">
-        Back to dashboard
-      </Link>
     </main>
   );
 }

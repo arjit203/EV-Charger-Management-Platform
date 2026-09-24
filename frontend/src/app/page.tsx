@@ -21,6 +21,7 @@ import { fetchHealth } from '@/services/health.service';
 import { config } from '@/lib/config';
 import type { DatabaseState, HealthPayload } from '@/types/api';
 import { buttonClasses } from '@/components/ui/Button';
+import { formatDateTime, formatTime } from '@/lib/datetime';
 
 /** Map a database state to a badge colour and a plain-English explanation. */
 const DATABASE_HINTS: Record<DatabaseState, { tone: Tone; hint: string }> = {
@@ -73,7 +74,7 @@ export default function SystemStatusPage() {
 
   const applyResult = useCallback((next: CheckResult) => {
     setResult(next);
-    setCheckedAt(new Date().toLocaleTimeString());
+    setCheckedAt(formatTime(new Date()));
     setIsLoading(false);
   }, []);
 
@@ -158,7 +159,7 @@ export default function SystemStatusPage() {
               <dd className="font-mono text-xs">{formatUptime(health.uptimeSeconds)}</dd>
 
               <dt className="text-neutral-500">Server time</dt>
-              <dd className="font-mono text-xs">{new Date(health.timestamp).toLocaleString()}</dd>
+              <dd className="font-mono text-xs">{formatDateTime(health.timestamp)}</dd>
 
               {health.database.name ? (
                 <>

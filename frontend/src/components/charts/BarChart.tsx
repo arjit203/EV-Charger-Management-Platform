@@ -1,13 +1,14 @@
 'use client';
 
+import { useState } from 'react';
+
 /**
- * A bar chart in about forty lines of SVG. NO CHARTING LIBRARY.
+ * Bar charts in plain HTML. NO CHARTING LIBRARY.
  *
  * That is a deliberate dependency decision, not laziness. The frontend's entire dependency
  * list is `next`, `react`, `react-dom` and `socket.io-client`; a charting library would be
  * the largest thing in it, added to draw four charts whose hardest requirement is "a
- * rectangle proportional to a number". Module 8 already set the precedent with the inline
- * energy curve on the session page.
+ * rectangle proportional to a number".
  *
  * What would change the answer: axes that pan and zoom, tooltips that track the cursor, or
  * stacked/overlaid series. At that point a library is doing real work. Until then it is
@@ -21,19 +22,46 @@
 interface Bar {
   label: string;
   value: number;
-  /** What to show in the tooltip and, for the top bar, above the axis. */
+  /** What to show in the tooltip, e.g. "4 sessions". */
   display: string;
 }
 
+/** A round axis maximum — 7 sessions gets an axis to 8, not to 7.000. */
+function niceMax(value: number): number {
+  if (value <= 5) return Math.max(1, Math.ceil(value));
+  const magnitude = 10 ** Math.floor(Math.log10(value));
+  const step = [1, 2, 2.5, 5, 10].find((m) => value <= m * magnitude) ?? 10;
+  return step * magnitude;
+}
+
+/**
+ * Vertical bars over time, drawn as HTML rather than a stretched SVG.
+ *
+ * THE BUG THIS REPLACES. The old version drew into a 720-unit SVG with
+ * `preserveAspectRatio="none"` and no axis. With a 30-day window and activity on only two
+ * adjacent days, it rendered as two tall, fused rectangles and nothing else — no scale, no dates
+ * under them, no way to tell "2 sessions" from "200". It looked broken because it communicated
+ * nothing.
+ *
+ * Now: a y-axis with round gridlines so height means a number; bars capped in width so a sparse
+ * month reads as a sparse month instead of two slabs; a 2px gap so neighbours never merge; a date
+ * label every week; a hover readout for the exact value; and a one-line summary on top, because
+ * the total and the busiest day are what someone glancing at a dashboard actually wants.
+ */
 export function BarChart({
   bars,
   emptyMessage = 'No activity in this period.',
-  colorClass = 'fill-emerald-500',
+  colorClass = 'bg-emerald-500',
+  unit = 'total',
 }: {
   bars: Bar[];
   emptyMessage?: string;
+  /** A Tailwind background class for the bars. */
   colorClass?: string;
+  /** Word for the summary line, e.g. "sessions". */
+  unit?: string;
 }) {
+  const [hovered, setHovered] = useState<number | null>(null);
   const max = Math.max(...bars.map((bar) => bar.value), 0);
 
   if (bars.length === 0 || max === 0) {
@@ -44,45 +72,86 @@ export function BarChart({
     );
   }
 
-  const width = 720;
-  const height = 160;
-  const gap = bars.length > 40 ? 0.5 : 2;
-  const barWidth = Math.max(1, width / bars.length - gap);
+  const top = niceMax(max);
+  const ticks = [top, top / 2, 0];
+  const total = bars.reduce((sum, bar) => sum + bar.value, 0);
+  const busiest = bars.reduce((best, bar) => (bar.value > best.value ? bar : best), bars[0]);
+  const activeDays = bars.filter((bar) => bar.value > 0).length;
+  // A label roughly every week, plus the last day, so dates never collide.
+  const labelEvery = Math.max(1, Math.ceil(bars.length / 5));
+  const readout = hovered === null ? null : bars[hovered];
 
   return (
-    <div className="overflow-x-auto">
-      <svg
-        viewBox={`0 0 ${width} ${height}`}
-        className="h-40 w-full min-w-[420px]"
-        preserveAspectRatio="none"
-        role="img"
-        aria-label={`Bar chart, ${bars.length} points, peak ${bars.find((b) => b.value === max)?.display ?? ''}`}
-      >
-        {bars.map((bar, index) => {
-          // Every bar with a non-zero value gets at least 2px, so "one session" is visible
-          // next to "forty sessions" rather than rounding away to an empty column.
-          const barHeight = bar.value === 0 ? 0 : Math.max(2, (bar.value / max) * (height - 4));
+    <div>
+      <p className="mb-3 flex flex-wrap items-baseline justify-between gap-2 text-xs text-neutral-500">
+        <span>
+          <span className="text-base font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">
+            {total.toLocaleString('en-IN')}
+          </span>{' '}
+          {unit} · active on {activeDays} of {bars.length} days · busiest {busiest.label} (
+          {busiest.display})
+        </span>
+        <span className="tabular-nums" aria-live="polite">
+          {readout ? `${readout.label}: ${readout.display}` : 'Hover a bar for the day'}
+        </span>
+      </p>
 
-          return (
-            <rect
-              key={bar.label}
-              x={index * (barWidth + gap)}
-              y={height - barHeight}
-              width={barWidth}
-              height={barHeight}
-              className={colorClass}
-              rx={1}
+      <div className="flex gap-2">
+        {/* y-axis labels */}
+        <div className="flex h-40 flex-col justify-between text-right text-[11px] tabular-nums text-neutral-400">
+          {ticks.map((tick) => (
+            <span key={tick} className="-translate-y-1/2 first:translate-y-0 last:translate-y-0">
+              {Number.isInteger(tick) ? tick : tick.toFixed(1)}
+            </span>
+          ))}
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="relative h-40">
+            {/* recessive gridlines */}
+            {ticks.map((tick) => (
+              <div
+                key={tick}
+                className="absolute inset-x-0 border-t border-neutral-200 dark:border-neutral-800"
+                style={{ bottom: `${(tick / top) * 100}%` }}
+              />
+            ))}
+
+            <div
+              className="absolute inset-0 flex items-end gap-[2px]"
+              role="img"
+              aria-label={`${total} ${unit} over ${bars.length} days; busiest ${busiest.label} with ${busiest.display}`}
             >
-              <title>{`${bar.label}: ${bar.display}`}</title>
-            </rect>
-          );
-        })}
-      </svg>
+              {bars.map((bar, index) => (
+                <div
+                  key={bar.label}
+                  className="flex h-full flex-1 items-end justify-center"
+                  onMouseEnter={() => setHovered(index)}
+                  onMouseLeave={() => setHovered(null)}
+                  title={`${bar.label}: ${bar.display}`}
+                >
+                  {bar.value > 0 && (
+                    <div
+                      className={`w-full max-w-[18px] rounded-t-[4px] ${colorClass} transition-opacity ${
+                        hovered !== null && hovered !== index ? 'opacity-50' : ''
+                      }`}
+                      // At least 3px, so one session is visible beside forty.
+                      style={{ height: `max(3px, ${(bar.value / top) * 100}%)` }}
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
 
-      {/* Only the ends are labelled. Thirty date labels on a 720px axis is not a label. */}
-      <div className="mt-1 flex justify-between text-[11px] text-neutral-400">
-        <span>{bars[0].label}</span>
-        <span>{bars[bars.length - 1].label}</span>
+          <div className="mt-1 flex gap-[2px] text-[11px] text-neutral-400">
+            {bars.map((bar, index) => (
+              <span key={bar.label} className="flex-1 overflow-visible whitespace-nowrap text-center">
+                {index % labelEvery === 0 || index === bars.length - 1 ? bar.label : ''}
+              </span>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );

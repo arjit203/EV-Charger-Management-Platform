@@ -89,8 +89,11 @@ for (const [key, companyId, role] of [
   ['cpoB', B, 'cpo_admin'], ['opB', B, 'operator'],
 ]) {
   const email = `${key}.m11.${S}@test.local`;
-  await must('POST', '/users', { token: su, body: { name: `Staff ${key}`, email, password: PW, role, companyId } });
-  staff[key] = { token: (await must('POST', '/auth/login', { body: { email, password: PW } })).token };
+  const created = await must('POST', '/users', { token: su, body: { name: `Staff ${key}`, email, password: PW, role, companyId } });
+  staff[key] = {
+    id: created.user.id,
+    token: (await must('POST', '/auth/login', { body: { email, password: PW } })).token,
+  };
 }
 
 const drivers = {};
@@ -311,7 +314,8 @@ const tId = anchored.id;
 
 chk('17. open -> resolved is illegal -> 409', 409,
   (await call('PATCH', `/complaints/${tId}/status`, { token: staff.cpoA.token, body: { status: 'resolved', resolution: 'Skipping ahead' } })).status);
-chk('17. open -> closed is illegal -> 409', 409,
+// open -> closed IS a legal edge (duplicate / spam), but only with a reason: without one -> 422.
+chk('17. open -> closed without saying why -> 422', 422,
   (await call('PATCH', `/complaints/${tId}/status`, { token: staff.cpoA.token, body: { status: 'closed' } })).status);
 
 chk('13. open -> in_progress is allowed', 200,
@@ -320,7 +324,7 @@ chk('   in_progress -> open is allowed (work paused)', 200,
   (await call('PATCH', `/complaints/${tId}/status`, { token: staff.cpoA.token, body: { status: 'open' } })).status);
 await call('PATCH', `/complaints/${tId}/status`, { token: staff.cpoA.token, body: { status: 'in_progress' } });
 
-chk('17. in_progress -> closed is illegal -> 409', 409,
+chk('17. in_progress -> closed without saying why -> 422', 422,
   (await call('PATCH', `/complaints/${tId}/status`, { token: staff.cpoA.token, body: { status: 'closed' } })).status);
 chk('   resolving with NO resolution text -> 422', 422,
   (await call('PATCH', `/complaints/${tId}/status`, { token: staff.cpoA.token, body: { status: 'resolved' } })).status);
@@ -334,8 +338,13 @@ chk('19. and who resolved it', true, resolved.resolvedBy !== null);
 
 chk('17. resolved -> in_progress is illegal -> 409', 409,
   (await call('PATCH', `/complaints/${tId}/status`, { token: staff.cpoA.token, body: { status: 'in_progress' } })).status);
-chk('17. resolved -> open is illegal -> 409', 409,
-  (await call('PATCH', `/complaints/${tId}/status`, { token: staff.cpoA.token, body: { status: 'open' } })).status);
+// An ADMIN may take back a resolution they got wrong, before the driver has to reopen it.
+const takenBack = await call('PATCH', `/complaints/${tId}/status`, { token: staff.cpoA.token, body: { status: 'open' } });
+chk('   resolved -> open by an admin is allowed (resolution taken back)', 200, takenBack.status);
+chk('   ...and it counts as a reopen', 1, takenBack.body?.data?.complaint?.reopenCount);
+await must('PATCH', `/complaints/${tId}/status`, { token: staff.cpoA.token, body: { status: 'in_progress' } });
+await must('PATCH', `/complaints/${tId}/status`, { token: staff.cpoA.token,
+  body: { status: 'resolved', resolution: 'Charger connection reset and tested again.' } });
 
 chk('15. resolved -> closed is allowed', 200,
   (await call('PATCH', `/complaints/${tId}/status`, { token: staff.cpoA.token, body: { status: 'closed' } })).status);
@@ -350,40 +359,70 @@ chk('17. closed -> resolved -> 409', 409,
 chk('   a closed complaint cannot be annotated -> 409', 409,
   (await call('PATCH', `/complaints/${tId}`, { token: staff.cpoA.token, body: { resolution: 'Late note' } })).status);
 chk('   the error explains what to do instead', true,
-  /new one/i.test((await call('PATCH', `/complaints/${tId}/status`, { token: staff.cpoA.token, body: { status: 'open' } })).body?.message ?? ''));
+  /follow-up/i.test((await call('PATCH', `/complaints/${tId}/status`, { token: staff.cpoA.token, body: { status: 'open' } })).body?.message ?? ''));
 
 /* ------------------------------------------------- OPERATOR BOUNDARY ---- */
-console.log('\n=== OPERATOR: can work a ticket, cannot conclude one ===');
+/*
+ * The operator is the person who FIXES hardware, so they may resolve hardware, site and session
+ * tickets. What stays administrative: closing (with or without a resolution), overturning a
+ * resolution, and concluding payment / account tickets - see the payment section below.
+ */
+console.log('\n=== OPERATOR: works and resolves hardware tickets, cannot close ===');
 const opTicket = (await must('POST', '/complaints', { token: drivers.d1.token, body: {
   category: 'charger_issue', subject: 'Cable will not unlock',
   description: 'The cable stayed locked after the session ended.', chargerId: chA.id } })).complaint;
 
+chk('   a ticket gets a human reference', true, /^CMP-[0-9A-F]{6}$/.test(opTicket.ticketRef));
+chk('   it starts unassigned', null, opTicket.assignedTo);
+
+const opView = (await must('GET', `/complaints/${opTicket.id}`, { token: staff.opA.token })).complaint;
+chk('   staff see WHICH charger, by name', true, typeof opView.charger?.name === 'string');
+chk('   ...and which station', true, typeof opView.station?.name === 'string' && typeof opView.station?.city === 'string');
+chk('   ...and WHO reported it, to call them back', true, typeof opView.reporter?.email === 'string');
+const driverView = (await must('GET', `/complaints/${opTicket.id}`, { token: drivers.d1.token })).complaint;
+chk('   the driver sees the station too', opView.station?.name, driverView.station?.name);
+chk('   but no reporter block (it is them) and no OCPP id', true,
+  driverView.reporter === undefined && driverView.charger?.ocppId === undefined);
+
 chk('13. operator can move open -> in_progress', 200,
   (await call('PATCH', `/complaints/${opTicket.id}/status`, { token: staff.opA.token, body: { status: 'in_progress' } })).status);
-chk('   operator can add interim notes', 200,
-  (await call('PATCH', `/complaints/${opTicket.id}`, { token: staff.opA.token, body: { resolution: 'Attended site, cable released manually.' } })).status);
-chk('16. operator CANNOT resolve -> 403', 403,
-  (await call('PATCH', `/complaints/${opTicket.id}/status`, { token: staff.opA.token, body: { status: 'resolved', resolution: 'Done' } })).status);
+chk('   starting work on an unowned ticket makes you the owner', staff.opA.id,
+  (await must('GET', `/complaints/${opTicket.id}`, { token: su })).complaint.assignedTo);
+
+chk('   operator adds an internal work note', 200,
+  (await call('PATCH', `/complaints/${opTicket.id}`, { token: staff.opA.token, body: { note: 'Attended site, cable released manually.' } })).status);
+await must('PATCH', `/complaints/${opTicket.id}`, { token: staff.opA.token, body: { note: 'Actuator replaced, tested three cycles.' } });
+const withNotes = (await must('GET', `/complaints/${opTicket.id}`, { token: staff.cpoA.token })).complaint;
+chk('   notes APPEND - the first one is not overwritten', 2, withNotes.notes?.length);
+chk('   each note is attributed', 'operator', withNotes.notes?.[0]?.byRole);
+chk('   internal notes are hidden from the driver', undefined,
+  (await must('GET', `/complaints/${opTicket.id}`, { token: drivers.d1.token })).complaint.notes);
+
+chk('   operator can release a ticket they hold', 200,
+  (await call('POST', `/complaints/${opTicket.id}/assign`, { token: staff.opA.token, body: { assigneeId: null } })).status);
+chk('   ...and take it back', 200,
+  (await call('POST', `/complaints/${opTicket.id}/assign`, { token: staff.opA.token, body: { assigneeId: staff.opA.id } })).status);
+chk('   operator cannot hand it to someone else -> 403', 403,
+  (await call('POST', `/complaints/${opTicket.id}/assign`, { token: staff.opA.token, body: { assigneeId: staff.cpoA.id } })).status);
+chk('   nobody can assign staff of ANOTHER company -> 422', 422,
+  (await call('POST', `/complaints/${opTicket.id}/assign`, { token: su, body: { assigneeId: staff.opB.id } })).status);
+chk('   "assigned to me" finds it', true,
+  (await must('GET', '/complaints?assigned=me', { token: staff.opA.token })).items.some((c) => c.id === opTicket.id));
+
+// in_progress -> closed is a LEGAL edge, so here it is the ROLE gate that answers.
+chk('   operator cannot close an unresolved ticket (duplicate/spam is an admin call) -> 403', 403,
+  (await call('PATCH', `/complaints/${opTicket.id}/status`, { token: staff.opA.token, body: { status: 'closed', resolution: 'dup' } })).status);
+
+chk('16. operator CAN resolve a charger problem they fixed', 200,
+  (await call('PATCH', `/complaints/${opTicket.id}/status`, { token: staff.opA.token, body: { status: 'resolved', resolution: 'Cable mechanism replaced.' } })).status);
+
+chk('16. operator cannot "close now" a resolved ticket either -> 403', 403,
+  (await call('PATCH', `/complaints/${opTicket.id}/status`, { token: staff.opA.token, body: { status: 'closed' } })).status);
 chk('   the error says who can', true,
-  /administrator/i.test((await call('PATCH', `/complaints/${opTicket.id}/status`, { token: staff.opA.token, body: { status: 'resolved', resolution: 'Done' } })).body?.message ?? ''));
-/*
- * THE TWO GATES ARE INDEPENDENT, and this pair proves it.
- *
- * From `in_progress`, closing is an ILLEGAL TRANSITION for anyone -> 409. The role check never
- * runs, because you cannot get there from here regardless of who you are.
- */
-chk('   in_progress -> closed is 409 for the operator too (transition, not role)', 409,
-  (await call('PATCH', `/complaints/${opTicket.id}/status`, { token: staff.opA.token, body: { status: 'closed' } })).status);
-
-chk('   a cpo_admin can resolve it', 200,
-  (await call('PATCH', `/complaints/${opTicket.id}/status`, { token: staff.cpoA.token, body: { status: 'resolved', resolution: 'Cable mechanism replaced.' } })).status);
-
-// NOW the transition is legal, so the ROLE gate is what answers -> 403.
-chk('16. operator cannot close even when the transition IS legal -> 403', 403,
-  (await call('PATCH', `/complaints/${opTicket.id}/status`, { token: staff.opA.token, body: { status: 'closed' } })).status);
+  /administrator/i.test((await call('PATCH', `/complaints/${opTicket.id}/status`, { token: staff.opA.token, body: { status: 'closed' } })).body?.message ?? ''));
 chk('   and a cpo_admin can', 200,
   (await call('PATCH', `/complaints/${opTicket.id}/status`, { token: staff.cpoA.token, body: { status: 'closed' } })).status);
-chk('   the operator note survived into the resolution', true,
+chk('   the resolution the driver received is recorded', true,
   (await must('GET', `/complaints/${opTicket.id}`, { token: su })).complaint.resolution.includes('Cable mechanism replaced'));
 
 /* ---------------------------------------------- PAYMENT DISPUTE (D1) ---- */
@@ -398,6 +437,12 @@ chk('   an anchorless complaint has no session context', null,
 
 const walletBefore = (await must('GET', '/wallet', { token: drivers.d2.token })).wallet.balancePaise;
 await must('PATCH', `/complaints/${d2Complaint.id}/status`, { token: staff.cpoA.token, body: { status: 'in_progress' } });
+// A payment dispute ends in a decision about the driver's money: an operator may investigate
+// and note, but not conclude it.
+chk('   an operator CANNOT resolve a payment dispute -> 403', 403,
+  (await call('PATCH', `/complaints/${d2Complaint.id}/status`, { token: staff.opA.token, body: { status: 'resolved', resolution: 'Looks fine' } })).status);
+chk('   ...but can add findings for the admin', 200,
+  (await call('PATCH', `/complaints/${d2Complaint.id}`, { token: staff.opA.token, body: { note: 'Meter log shows 5 kWh delivered.' } })).status);
 await must('PATCH', `/complaints/${d2Complaint.id}/status`, { token: staff.cpoA.token,
   body: { status: 'resolved', resolution: 'Charger fault confirmed from meter logs. Waived pending finance review.' } });
 

@@ -28,6 +28,7 @@ import {
 import { createStaffUser } from '@/services/user.service';
 import { COMPANY_TYPE_LABELS, ROLE_LABELS, type Company } from '@/types/api';
 import { buttonClasses } from '@/components/ui/Button';
+import { formatDateTime } from '@/lib/datetime';
 
 /* ------------------------------------------------------------------ staff -- */
 
@@ -216,7 +217,7 @@ function CompanyDetails({ company, canManage, onChanged }: {
                 : '—'}
             </dd>
             <dt className="text-neutral-500">Created</dt>
-            <dd className="text-xs">{new Date(company.createdAt).toLocaleString()}</dd>
+            <dd className="text-xs">{formatDateTime(company.createdAt)}</dd>
           </dl>
         )}
       </section>
@@ -258,10 +259,11 @@ function CompanyDetailContent() {
         <p className="text-sm text-neutral-500">Loading company&hellip;</p>
       ) : state.status === 'error' ? (
         <div className="space-y-3">
-          <StatusBadge tone="bad" label={`HTTP ${state.error.status}`} />
           <p className="text-sm font-medium">{state.error.message}</p>
           <p className="text-xs text-neutral-500">
-            A 403 here is the company isolation working: this account may only read its own company.
+            {state.error.status === 403 || state.error.status === 404
+              ? 'This record does not exist, or it belongs to another company.'
+              : 'Please try again in a moment.'}
           </p>
           <button
             type="button" onClick={() => router.back()}
@@ -274,12 +276,11 @@ function CompanyDetailContent() {
         <CompanyDetails company={state.data} canManage={canManage} onChanged={setData} />
       )}
 
-      <Link
-        href={canManage ? '/companies' : '/dashboard'}
-        className="text-sm text-neutral-500 underline underline-offset-4"
-      >
-        {canManage ? 'Back to companies' : 'Back to dashboard'}
-      </Link>
+      {canManage && (
+        <Link href="/companies" className="text-sm text-neutral-500 underline underline-offset-4">
+          Back to companies
+        </Link>
+      )}
     </main>
   );
 }

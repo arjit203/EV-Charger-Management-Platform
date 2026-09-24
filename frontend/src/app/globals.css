@@ -16,26 +16,39 @@
  */
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /*
+   * DARK-FIRST. An operations console is watched for hours, often in a control room or at a
+   * site at night, and every screen of this product is designed on the dark ground. It used to
+   * follow the OS preference, so an operator on a light-mode laptop got a different, less-tested
+   * product than the one in every screenshot and review.
+   */
+  --background: #0a0a0a;
+  --foreground: #ededed;
 
   /* Surfaces */
-  --surface: #ffffff;
-  --surface-muted: #fafafa;
-  --border: #e5e5e5;
-  --border-strong: #d4d4d4;
+  --surface: #0f0f0f;
+  --surface-muted: #141414;
+  --border: #262626;
+  --border-strong: #404040;
 
   /* Text */
-  --muted: #737373;
-  --muted-strong: #525252;
+  --muted: #a3a3a3;
+  --muted-strong: #d4d4d4;
 
-  /* Accent — chrome, never status. */
-  --accent: #4f46e5;
-  --accent-hover: #4338ca;
-  --accent-soft: rgba(79, 70, 229, 0.1);
-  --accent-ring: rgba(79, 70, 229, 0.35);
-  --accent-contrast: #ffffff;
+  /* Accent — chrome, never status. Lifted for contrast on the dark ground. */
+  --accent: #818cf8;
+  --accent-hover: #a5b4fc;
+  --accent-soft: rgba(129, 140, 248, 0.14);
+  --accent-ring: rgba(129, 140, 248, 0.45);
+  --accent-contrast: #111827;
 }
+
+/*
+ * `dark:` utilities follow the `.dark` class on <html> (always set in layout.tsx) rather than the
+ * OS media query — the same switch as the tokens above, so a component's `dark:` classes and
+ * the tokens can never disagree about which theme is showing.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
 
 @theme inline {
   --color-background: var(--background);
@@ -49,28 +62,6 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-
-    --surface: #0f0f0f;
-    --surface-muted: #141414;
-    --border: #262626;
-    --border-strong: #404040;
-
-    --muted: #a3a3a3;
-    --muted-strong: #d4d4d4;
-
-    /* Lifted for contrast on a dark ground; same hue, same meaning. */
-    --accent: #818cf8;
-    --accent-hover: #a5b4fc;
-    --accent-soft: rgba(129, 140, 248, 0.14);
-    --accent-ring: rgba(129, 140, 248, 0.45);
-    --accent-contrast: #111827;
-  }
-}
-
 /*
  * Tell the browser which theme its OWN widgets should use — the options list of a <select>,
  * scrollbars, date pickers, autofill.
@@ -81,13 +72,7 @@
  * was unreadable until you hovered an option.
  */
 :root {
-  color-scheme: light;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
-  }
+  color-scheme: dark;
 }
 
 /*

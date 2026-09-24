@@ -96,8 +96,10 @@ else naming one gets a visible refusal rather than a silent rescope.
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
 | `GET` | `/stations/map` | staff | Lightweight markers, company-scoped, with availability counts |
-| `GET` | `/stations/public` | **any role** | **Active stations of active companies, across every company.** Company identity stripped |
-| `GET` | `/stations` | staff | Paginated admin list. `?search=`, `?city=`, `?status=` |
+| `GET` | `/stations/public` | **any role** | **Active stations of active companies, across every company.** Carries the operator's brand as `operatorName`; company id and records stripped |
+| `GET` | `/stations/public/cities` | any role | Cities that have a publicly listed station — the driver's City dropdown |
+| `GET` | `/stations/cities` | staff | Cities among the caller's stations (company-scoped) — the staff City dropdown |
+| `GET` | `/stations` | staff | Paginated admin list. `?search=` (name, code, address, **city, state, PIN**), `?city=` (exact), `?status=` |
 | `POST` | `/stations` | super_admin, cpo_admin | Create a station |
 | `GET` | `/stations/:id` | staff | One station |
 | `PATCH` | `/stations/:id` | super_admin, cpo_admin | Update details |
@@ -105,7 +107,12 @@ else naming one gets a visible refusal rather than a silent rescope.
 
 > `/stations/public` is the project's **one deliberately cross-company read**. "Public" describes
 > the *content*, not the access — it still requires a token.
-> **Route order matters:** `/map` and `/public` are declared before `/:stationId`.
+> **Route order matters:** `/map`, `/public`, `/public/cities` and `/cities` are declared before
+> `/:stationId`.
+>
+> `?city=` is an **exact** (case-insensitive) match on purpose — it is a filter, not a search. That
+> is why the UI offers it as a dropdown fed by `/cities`: a free-text box made "Delhi" silently miss
+> stations stored as "New Delhi". A partial location goes in `?search=`.
 
 ## Chargers & Connectors
 
@@ -137,16 +144,22 @@ else naming one gets a visible refusal rather than a silent rescope.
 | `GET` | `/charging/sessions` | any | Own sessions (driver) or company's (staff). `?active=true` |
 | `GET` | `/charging/sessions/:id` | owner, staff | One session |
 | `GET` | `/charging/sessions/:id/readings` | owner, staff | Meter time-series for one session |
-| `POST` | `/charging/sessions/:id/stop` | owner, operator+ | Stop a charge |
+| `POST` | `/charging/sessions/:id/stop` | owner, operator+ | Stop a charge. Staff **must** send `{ "reason": "…" }` (422 otherwise) — the driver is notified with it, and it is stored as `stoppedByRole` / `stopNote` |
+
+Session responses carry display labels resolved at read time — `companyName` (the operator),
+`stationName`, `stationAddress`, `stationCity`, `chargerName`, `powerKw`, and for staff
+`driverName` / `driverEmail`. Real-time `session:statusChanged` pushes carry the same labels for
+sessions started since the server booted; clients merge a push onto the row they already have.
 
 > Everything else — charger, station, company, tariff — is **derived** from the connector. A
 > mismatched set of ids cannot be submitted because only one id is accepted.
 
-`POST /charging/sessions` refuses with **409** for four distinct reasons, each with a message
+`POST /charging/sessions` refuses with **409** for five distinct reasons, each with a message
 written to be shown to a driver as-is:
 
 | Cause | Message names |
 |---|---|
+| **Driver already has a charge in progress** (one account, one car) — checked first | where it is running; `details.activeSessionId` lets the app link to it |
 | Connector faulted, occupied or charger offline | which of those it is |
 | Charger not connected to the OCPP gateway | the charger's `ocppId` |
 | Operator has published no active tariff | that the station has no price |
@@ -193,8 +206,16 @@ takes to clear.
 | `POST` | `/complaints` | driver | File a ticket. One anchor id; the rest is derived |
 | `GET` | `/complaints` | any | Own (driver) or company's (staff) |
 | `GET` | `/complaints/:id` | owner, staff | One complaint, with the disputed session if any |
-| `PATCH` | `/complaints/:id` | staff | Update priority or category |
-| `PATCH` | `/complaints/:id/status` | staff | Move through the workflow. **`closed` is terminal** |
+| `PATCH` | `/complaints/:id` | staff | `priority`, `note` (appends an **internal** work note), `resolution` (draft reply to the driver). Subject/description/category are immutable |
+| `PATCH` | `/complaints/:id/status` | staff | Move through the workflow. **`closed` is terminal**. Operators may resolve hardware/site/session tickets; payment/account resolution, closing, and overturning a resolution are admin-only |
+| `POST` | `/complaints/:id/assign` | staff | `{ "assigneeId": id \| null }`. Operators take or release their own; admins assign any staff who can see the ticket |
+| `POST` | `/complaints/:id/confirm` | driver | Resolved → closed ("yes, it is fixed") |
+| `POST` | `/complaints/:id/reopen` | driver | Resolved → open, reason required |
+
+`GET /complaints` also takes `?assigned=me|unassigned` (staff). Every complaint carries a
+`ticketRef` (`CMP-XXXXXX`) and read-time context: `companyName`, `station`, `charger`,
+`connectorNumber`, and for staff `reporter` (name, email, phone), `assigneeName` and `notes`.
+Drivers never receive `notes` or an assignee.
 
 ## Notifications
 

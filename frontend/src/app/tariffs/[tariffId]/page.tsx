@@ -21,6 +21,7 @@ import { formatRate } from '@/lib/money';
 import { toMessage } from '@/lib/formatApiError';
 import { getTariff, setTariffStatus, updateTariff } from '@/services/tariff.service';
 import type { Tariff } from '@/types/api';
+import { formatDateTime } from '@/lib/datetime';
 
 function TariffDetail({
   tariff,
@@ -95,7 +96,7 @@ function TariffDetail({
         </div>
         <div>
           <dt className="text-xs text-neutral-500">Last updated</dt>
-          <dd className="mt-0.5">{new Date(tariff.updatedAt).toLocaleString()}</dd>
+          <dd className="mt-0.5">{formatDateTime(tariff.updatedAt)}</dd>
         </div>
       </dl>
 

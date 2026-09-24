@@ -27,6 +27,7 @@ import {
   verifyRecharge,
 } from '@/services/wallet.service';
 import type { WalletTransaction } from '@/types/api';
+import { formatDateTime } from '@/lib/datetime';
 
 /** Razorpay injects this global when its script loads. */
 declare global {
@@ -60,7 +61,7 @@ function LedgerRow({ entry }: { entry: WalletTransaction }) {
       <div className="min-w-0">
         <p className="truncate text-sm font-medium">{entry.description}</p>
         <p className="mt-0.5 text-xs text-neutral-500">
-          {new Date(entry.createdAt).toLocaleString()}
+          {formatDateTime(entry.createdAt)}
           {entry.chargingSessionId && (
             <>
               {' · '}
@@ -211,7 +212,7 @@ function WalletContent() {
                   onClick={() => setAmount(String(preset))}
                   className={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${
                     amount === String(preset)
-                      ? 'border-emerald-600 bg-emerald-600/10 text-emerald-700 dark:text-emerald-400'
+                      ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
                       : 'border-neutral-300 hover:bg-neutral-500/10 dark:border-neutral-700'
                   }`}
                 >
@@ -233,7 +234,7 @@ function WalletContent() {
                 type="button"
                 onClick={() => void recharge()}
                 disabled={isBusy || !checkoutReady}
-                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700 disabled:opacity-60"
+                className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent-contrast)] transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-60"
               >
                 {isBusy ? 'Opening…' : 'Add money'}
               </button>

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 
 import {
+  assignComplaint,
   confirmComplaintResolved,
   createComplaint,
   getComplaintById,
@@ -14,6 +15,7 @@ import { authorize } from '../middlewares/role.middleware';
 import { validateBody, validateParams, validateQuery } from '../middlewares/validate.middleware';
 import { ROLES } from '../constants/roles';
 import {
+  assignComplaintSchema,
   complaintIdParamSchema,
   complaintStatusSchema,
   createComplaintSchema,
@@ -92,6 +94,18 @@ router.patch(
   validateParams(complaintIdParamSchema),
   validateBody(complaintStatusSchema),
   setComplaintStatus,
+);
+
+/**
+ * Ownership. STAFF ONLY; who may assign whom is decided in the service (operators take or release
+ * their own, admins assign anyone who can see the ticket).
+ */
+router.post(
+  '/:complaintId/assign',
+  authorize(...STAFF_ROLES),
+  validateParams(complaintIdParamSchema),
+  validateBody(assignComplaintSchema),
+  assignComplaint,
 );
 
 /**

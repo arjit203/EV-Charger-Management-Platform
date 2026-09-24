@@ -159,7 +159,7 @@ export function StationForm({
             value={form.longitude} error={fieldErrors.longitude} onChange={update('longitude')} />
         </div>
         <p className="text-xs text-neutral-500">
-          Coordinates are stored now so the charging-station map can place this site later.
+          These place the station on the map and in drivers’ “near me” search — copy them from Google Maps (right-click the site).
         </p>
       </fieldset>
 

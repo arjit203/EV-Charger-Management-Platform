@@ -1,5 +1,7 @@
 # Charging Sessions & Meter Readings
 
+> **Revised later (real-world pass):** one open session per driver (`one_open_session_per_driver`), attributed force-stops, read-time display labels — see `docs/learning/fixes-real-world-pass.md` and `API.md`.
+
 **Status:** Complete · 112 Module 7 checks passing, 598 across Modules 1–7
 **Depends on:** Module 5 (chargers, connectors) and Module 6 (the OCPP gateway)
 **Feeds:** Module 8 (live monitoring), Module 9 (tariffs), Module 10 (wallet), Module 13 (analytics)

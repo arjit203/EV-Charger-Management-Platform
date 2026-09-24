@@ -86,7 +86,38 @@ const GROUPS: NavGroup[] = [
 ];
 
 /** The groups this role is offered, with empty groups dropped rather than rendered bare. */
+/**
+ * THE DRIVER'S NAVIGATION — a separate list, not the staff one filtered.
+ *
+ * Drivers used to get no shell at all: every page was an island with its own "Back to dashboard"
+ * link, and the header (bell, sign out) existed only on the home screen. Same shell now, their
+ * own menu: charging first, then account. `/sessions`, `/map` and `/complaints` are the same
+ * routes staff use — the server scopes what each role sees there.
+ */
+const DRIVER_GROUPS: NavGroup[] = [
+  { title: null, items: [{ href: '/dashboard', label: 'Home', roles: ['driver'] }] },
+  {
+    title: 'Charging',
+    items: [
+      { href: '/charge', label: 'Start charging', roles: ['driver'] },
+      { href: '/map', label: 'Find a station', roles: ['driver'] },
+      { href: '/sessions', label: 'My charging', roles: ['driver'] },
+      { href: '/wallet', label: 'Wallet', roles: ['driver'] },
+    ],
+  },
+  {
+    title: 'Account',
+    items: [
+      { href: '/my-vehicles', label: 'My vehicles', roles: ['driver'] },
+      { href: '/complaints', label: 'Support', roles: ['driver'] },
+      { href: '/notifications', label: 'Notifications', roles: ['driver'] },
+      { href: '/profile', label: 'My profile', roles: ['driver'] },
+    ],
+  },
+];
+
 export function navigationFor(role: Role): NavGroup[] {
+  if (role === 'driver') return DRIVER_GROUPS;
   return GROUPS.map((group) => ({
     title: group.title,
     items: group.items.filter((item) => item.roles.includes(role)),
@@ -101,6 +132,7 @@ export function navigationFor(role: Role): NavGroup[] {
  */
 const TITLES: Record<string, string> = {
   '/dashboard': 'Dashboard',
+  '/complaints/new': 'Report a problem',
   '/monitor': 'Live operations',
   '/sessions': 'Charging sessions',
   '/stations': 'Stations',
@@ -120,7 +152,13 @@ const TITLES: Record<string, string> = {
   '/charge': 'Start charging',
 };
 
-export function titleForPath(pathname: string): string {
+export function titleForPath(pathname: string, role?: Role): string {
+  if (role === 'driver') {
+    if (pathname === '/dashboard') return 'Home';
+    if (pathname === '/complaints' || pathname.startsWith('/complaints/')) return pathname === '/complaints/new' ? 'Report a problem' : 'Support';
+    if (pathname === '/sessions' || pathname.startsWith('/sessions/')) return 'My charging';
+    if (pathname === '/map') return 'Find a station';
+  }
   const match = Object.keys(TITLES)
     .filter((path) => pathname === path || pathname.startsWith(`${path}/`))
     .sort((a, b) => b.length - a.length)[0];

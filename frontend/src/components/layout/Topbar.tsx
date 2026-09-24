@@ -49,7 +49,7 @@ export function Topbar({
         <IconMenu className="h-4 w-4" />
       </button>
 
-      <h1 className="truncate text-base font-semibold tracking-tight">{titleForPath(pathname)}</h1>
+      <h1 className="truncate text-base font-semibold tracking-tight">{titleForPath(pathname, user.role)}</h1>
 
       <div className="ml-auto flex items-center gap-2 sm:gap-3">
         {/*

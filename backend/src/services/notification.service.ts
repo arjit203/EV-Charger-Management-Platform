@@ -23,6 +23,8 @@ import {
   type PublicNotification,
 } from '../models/notification.model';
 import { User } from '../models/user.model';
+import { Station } from '../models/station.model';
+import { complaintRef } from '../models/complaint.model';
 import { dedupeKeys, type NotificationType, type ReferenceType } from '../constants/notification';
 import { ROLES } from '../constants/roles';
 import { ApiError } from '../utils/ApiError';
@@ -142,6 +144,13 @@ export interface SessionLike {
   energyConsumedWh: number;
   amountPaise: number | null;
   failureReason: string | null;
+  /** Set when staff force-stopped the charge — the driver must hear that it was not them. */
+  stoppedByRole?: string | null;
+  stopNote?: string | null;
+}
+
+function wasForceStopped(session: SessionLike): boolean {
+  return Boolean(session.stoppedByRole) && session.stoppedByRole !== 'driver';
 }
 
 export async function sessionStarted(session: SessionLike): Promise<void> {
@@ -158,15 +167,26 @@ export async function sessionStarted(session: SessionLike): Promise<void> {
 
 export async function sessionCompleted(session: SessionLike): Promise<void> {
   const kwh = (session.energyConsumedWh / 1000).toFixed(3);
+  const delivered =
+    session.amountPaise === null
+      ? `${kwh} kWh delivered.`
+      : `${kwh} kWh for ${formatPaise(session.amountPaise)}.`;
+
+  /*
+   * A FORCE-STOP IS NOT "COMPLETED" FROM THE DRIVER'S SIDE. Their car stopped charging and they
+   * did not ask it to — the notification says who did and why, and that they pay only for what
+   * was delivered. Without this, the driver's only clue is a charge that ended early.
+   */
+  const forced = wasForceStopped(session);
 
   await createNotification({
     userId: session.userId,
     type: 'charging_completed',
-    title: 'Charging completed',
-    message:
-      session.amountPaise === null
-        ? `Your charging session has finished. ${kwh} kWh delivered.`
-        : `Your charging session has finished. ${kwh} kWh for ${formatPaise(session.amountPaise)}.`,
+    title: forced ? 'Charging stopped by the station operator' : 'Charging completed',
+    message: forced
+      ? `The station operator stopped your charge${session.stopNote ? `: "${session.stopNote}"` : '.'} ` +
+        `${delivered} You are billed only for the energy delivered. Report a problem from the session page if this was wrong.`
+      : `Your charging session has finished. ${delivered}`,
     referenceType: 'charging_session',
     referenceId: session._id,
     dedupeKey: dedupeKeys.session(String(session._id), 'completed'),
@@ -252,6 +272,7 @@ export interface ComplaintLike {
   _id: Types.ObjectId;
   userId: Types.ObjectId;
   companyId: Types.ObjectId | null;
+  stationId?: Types.ObjectId | null;
   subject: string;
 }
 
@@ -265,11 +286,18 @@ export interface ComplaintLike {
 export async function complaintCreated(complaint: ComplaintLike): Promise<void> {
   if (!complaint.companyId) return;
 
+  // Which site, in the notification itself — "New complaint" alone makes every recipient open it
+  // to find out whether it is theirs to go and fix.
+  const station = complaint.stationId
+    ? await Station.findById(complaint.stationId).select('name city').lean()
+    : null;
+  const where = station ? ` at ${station.name}, ${station.city}` : '';
+
   await notifyCompanyStaff(complaint.companyId, (staffUserId) => ({
     userId: staffUserId,
     type: 'complaint_created',
-    title: 'New complaint',
-    message: `A driver reported: "${complaint.subject}"`,
+    title: `New complaint ${complaintRef(complaint._id)}`,
+    message: `A driver reported${where}: "${complaint.subject}"`,
     referenceType: 'complaint',
     referenceId: complaint._id,
     dedupeKey: dedupeKeys.complaint(String(complaint._id), 'created'),
@@ -350,8 +378,10 @@ export async function complaintUpdated(
   await createNotification({
     userId: complaint.userId,
     type: 'complaint_updated',
-    title: `Complaint ${status.replace('_', ' ')}`,
-    message: messages[status] ?? 'Your complaint was updated.',
+    // Ticket number and subject in the notification: a driver with two open tickets cannot tell
+    // which one "Complaint resolved" is about.
+    title: `Complaint ${complaintRef(complaint._id)} ${status.replace('_', ' ')}`,
+    message: `"${complaint.subject}" — ${messages[status] ?? 'Your complaint was updated.'}`,
     referenceType: 'complaint',
     referenceId: complaint._id,
     dedupeKey: dedupeKeys.complaint(String(complaint._id), `${status}:${historyLength}`),
@@ -372,7 +402,7 @@ export async function complaintReopened(
   await notifyCompanyStaff(complaint.companyId, (staffUserId) => ({
     userId: staffUserId,
     type: 'complaint_updated',
-    title: 'Complaint reopened by driver',
+    title: `Complaint ${complaintRef(complaint._id)} reopened by driver`,
     message: `"${complaint.subject}" — ${reason}`,
     referenceType: 'complaint',
     referenceId: complaint._id,

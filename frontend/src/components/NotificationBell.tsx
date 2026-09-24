@@ -156,7 +156,7 @@ export function NotificationBell() {
       >
         🔔
         {unreadCount > 0 && (
-          <span className="absolute -right-1.5 -top-1.5 min-w-5 rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+          <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-[var(--accent)] px-1.5 py-0.5 text-center text-[10px] font-semibold text-[var(--accent-contrast)]">
             {unreadCount > 99 ? '99+' : unreadCount}
           </span>
         )}
@@ -188,12 +188,12 @@ export function NotificationBell() {
                 type="button"
                 onClick={() => void open(notification)}
                 className={`block w-full border-b border-neutral-100 px-4 py-3 text-left transition-colors hover:bg-neutral-500/5 dark:border-neutral-900 ${
-                  notification.isRead ? '' : 'bg-emerald-500/5'
+                  notification.isRead ? '' : 'bg-[var(--accent-soft)]'
                 }`}
               >
                 <p className="flex items-center gap-2 text-sm font-medium">
                   {!notification.isRead && (
-                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
+                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--accent)]" aria-label="Unread" />
                   )}
                   {notification.title}
                 </p>

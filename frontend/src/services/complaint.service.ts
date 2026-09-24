@@ -37,6 +37,8 @@ export interface ListComplaintsParams {
   priority?: ComplaintPriority;
   stationId?: string;
   chargerId?: string;
+  /** Staff only: my tickets, or tickets nobody owns yet. */
+  assigned?: 'me' | 'unassigned';
 }
 
 /** Scoped server-side: a driver gets their own, staff get their company's. */
@@ -70,7 +72,7 @@ export async function createComplaint(input: CreateComplaintInput): Promise<Comp
  */
 export async function updateComplaint(
   complaintId: string,
-  input: { resolution?: string; priority?: ComplaintPriority },
+  input: { resolution?: string; priority?: ComplaintPriority; note?: string },
 ): Promise<Complaint> {
   const { complaint } = await apiRequest<ComplaintPayload>(`/complaints/${complaintId}`, {
     method: 'PATCH',
@@ -111,6 +113,18 @@ export async function reopenComplaint(complaintId: string, reason: string): Prom
   const { complaint } = await apiRequest<ComplaintPayload>(`/complaints/${complaintId}/reopen`, {
     method: 'POST',
     body: { reason },
+  });
+  return complaint;
+}
+
+/** Take a ticket (your own id), hand it to a colleague (admins), or release it (`null`). */
+export async function assignComplaint(
+  complaintId: string,
+  assigneeId: string | null,
+): Promise<Complaint> {
+  const { complaint } = await apiRequest<ComplaintPayload>(`/complaints/${complaintId}/assign`, {
+    method: 'POST',
+    body: { assigneeId },
   });
   return complaint;
 }

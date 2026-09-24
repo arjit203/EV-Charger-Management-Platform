@@ -119,7 +119,16 @@ export async function listStations(
 
   if (query.search) {
     const pattern = { $regex: escapeRegex(query.search), $options: 'i' };
-    base.$or = [{ name: pattern }, { stationCode: pattern }, { address: pattern }];
+    // City, state and PIN code too: "Mumbai" typed into the one search box an admin actually
+    // uses is a location search, and returning nothing for it read as a broken page.
+    base.$or = [
+      { name: pattern },
+      { stationCode: pattern },
+      { address: pattern },
+      { city: pattern },
+      { state: pattern },
+      { postalCode: pattern },
+    ];
   }
 
   if (query.companyId) {

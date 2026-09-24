@@ -48,6 +48,22 @@ export interface ComplaintHistoryEntry {
   at: Date;
 }
 
+/**
+ * An INTERNAL work note — what staff found and did, in order. Never shown to the driver.
+ *
+ * WHY A LOG AND NOT ONE TEXT FIELD. The single `resolution` box used to double as the notes
+ * field, so "Save note" OVERWROTE whatever the last person wrote. A ticket passed from the
+ * operator who attended the site to the admin who issues the refund must keep both entries,
+ * attributed and timed — the same split every help desk makes between internal notes and the
+ * public reply. `resolution` stays what it always meant: the answer the driver receives.
+ */
+export interface ComplaintNote {
+  byUserId: Types.ObjectId;
+  byRole: ComplaintActor;
+  text: string;
+  at: Date;
+}
+
 export interface IComplaint {
   /** The reporter. Always from the verified token, never from a request body. */
   userId: Types.ObjectId;
@@ -91,6 +107,18 @@ export interface IComplaint {
   reopenCount: number;
   /** The closed complaint this one follows up, when a problem came back after closure. */
   followUpOf: Types.ObjectId | null;
+
+  /**
+   * WHO OWNS THIS TICKET NOW. Null = unassigned, sitting in the queue.
+   *
+   * Without an owner, two operators drive to the same site or — more often — nobody does, each
+   * assuming the other has it. "Assign to me" is the first move on any real ticket queue.
+   */
+  assignedTo: Types.ObjectId | null;
+  assignedAt: Date | null;
+
+  /** Internal work notes, oldest first. Staff only. */
+  notes: ComplaintNote[];
 
   createdAt: Date;
   updatedAt: Date;
@@ -138,6 +166,23 @@ const complaintSchema = new Schema<IComplaint, ComplaintModel>(
     },
     reopenCount: { type: Number, required: true, default: 0, min: 0 },
     followUpOf: { type: Schema.Types.ObjectId, ref: 'Complaint', default: null },
+
+    assignedTo: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+    assignedAt: { type: Date, default: null },
+    notes: {
+      type: [
+        new Schema<ComplaintNote>(
+          {
+            byUserId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+            byRole: { type: String, enum: COMPLAINT_ACTORS, required: true },
+            text: { type: String, required: true, trim: true, maxlength: 2000 },
+            at: { type: Date, required: true },
+          },
+          { _id: false },
+        ),
+      ],
+      default: [],
+    },
   },
   { timestamps: true },
 );
@@ -170,9 +215,21 @@ export const Complaint = model<IComplaint, ComplaintModel>('Complaint', complain
 
 export type ComplaintDocument = HydratedDocument<IComplaint>;
 
+/**
+ * The human ticket number — "CMP-4F2A9C" — that a driver quotes on the phone and staff search for.
+ *
+ * DERIVED from the id rather than stored from a counter: it needs no migration for existing
+ * tickets, cannot collide (it is the tail of a unique ObjectId, which carries a per-process
+ * counter), and nothing has to keep a sequence in step.
+ */
+export function complaintRef(id: Types.ObjectId | string): string {
+  return `CMP-${String(id).slice(-6).toUpperCase()}`;
+}
+
 /** Explicit allow-list, consistent with every other model in the project. */
 export interface PublicComplaint {
   id: string;
+  ticketRef: string;
   userId: string;
   companyId: string | null;
   chargingSessionId: string | null;
@@ -190,8 +247,21 @@ export interface PublicComplaint {
   history: PublicComplaintHistoryEntry[];
   reopenCount: number;
   followUpOf: string | null;
+  assignedTo: string | null;
+  assignedAt: string | null;
+  /** Staff only — stripped for the driver by the service. */
+  notes?: PublicComplaintNote[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface PublicComplaintNote {
+  byUserId: string;
+  byRole: ComplaintActor;
+  /** Resolved by the service at read time. */
+  byName?: string | null;
+  text: string;
+  at: string;
 }
 
 /**
@@ -210,6 +280,7 @@ export interface PublicComplaintHistoryEntry {
 export function toPublicComplaint(complaint: ComplaintDocument): PublicComplaint {
   return {
     id: String(complaint._id),
+    ticketRef: complaintRef(complaint._id),
     userId: String(complaint.userId),
     companyId: complaint.companyId ? String(complaint.companyId) : null,
     chargingSessionId: complaint.chargingSessionId ? String(complaint.chargingSessionId) : null,
@@ -233,6 +304,14 @@ export function toPublicComplaint(complaint: ComplaintDocument): PublicComplaint
     })),
     reopenCount: complaint.reopenCount ?? 0,
     followUpOf: complaint.followUpOf ? String(complaint.followUpOf) : null,
+    assignedTo: complaint.assignedTo ? String(complaint.assignedTo) : null,
+    assignedAt: complaint.assignedAt ? complaint.assignedAt.toISOString() : null,
+    notes: (complaint.notes ?? []).map((note) => ({
+      byUserId: String(note.byUserId),
+      byRole: note.byRole,
+      text: note.text,
+      at: note.at.toISOString(),
+    })),
     createdAt: complaint.createdAt.toISOString(),
     updatedAt: complaint.updatedAt.toISOString(),
   };

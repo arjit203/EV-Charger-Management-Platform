@@ -1,5 +1,7 @@
 # Complaints & Support
 
+> **Revised later (real-world pass):** operator resolution rights (D5), assignment, internal notes and ticket context changed — see `docs/learning/fixes-real-world-pass.md` and `API.md`.
+
 **Status:** Complete · 93 Module 11 checks passing, 963 across Modules 1–11
 **Depends on:** Modules 2, 5, 7 and 10 — reads from all of them, writes back to none
 **Feeds:** Module 12 (notifications), Module 13 (operational analytics)

@@ -20,7 +20,7 @@ import { listCompanies } from '@/services/company.service';
 import type { ChargerType, ConnectorType } from '@/types/api';
 
 export const FILTER_SELECT_CLASS =
-  'rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700';
+  'max-w-full rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700';
 
 /** Short plug names for a filter — the long CONNECTOR_LABELS are for forms. */
 export const PLUG_LABELS: Record<ConnectorType, string> = {

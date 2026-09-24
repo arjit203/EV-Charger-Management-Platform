@@ -20,6 +20,7 @@ import {
   markAsRead,
 } from '@/services/notification.service';
 import type { AppNotification } from '@/types/api';
+import { formatDateTime } from '@/lib/datetime';
 
 function hrefFor(notification: AppNotification): string {
   switch (notification.referenceType) {
@@ -117,12 +118,12 @@ function NotificationsContent() {
               className={`block w-full rounded-xl border p-4 text-left transition-colors hover:bg-neutral-500/5 ${
                 notification.isRead
                   ? 'border-neutral-200 dark:border-neutral-800'
-                  : 'border-emerald-600/30 bg-emerald-500/5'
+                  : 'border-[var(--accent)]/30 bg-[var(--accent-soft)]'
               }`}
             >
               <p className="flex items-center gap-2 font-medium">
                 {!notification.isRead && (
-                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--accent)]" aria-label="Unread" />
                 )}
                 {notification.title}
               </p>
@@ -130,7 +131,7 @@ function NotificationsContent() {
                 {notification.message}
               </p>
               <p className="mt-1.5 text-xs text-neutral-500">
-                {new Date(notification.createdAt).toLocaleString()}
+                {formatDateTime(notification.createdAt)}
               </p>
             </button>
           ))}

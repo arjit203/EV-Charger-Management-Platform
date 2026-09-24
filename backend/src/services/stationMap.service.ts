@@ -109,6 +109,12 @@ export interface PublicMapStation extends Availability {
   latitude: number;
   longitude: number;
   status: StationStatus;
+  /**
+   * The operator's BRAND NAME — "who runs this charger". Public in every real charging app (OCPI
+   * publishes it as a Location's `operator`), and the first thing a driver checks for trust,
+   * pricing expectations and who to call. The company's ID and records stay out of this shape.
+   */
+  operatorName: string | null;
   /** Straight-line distance from the driver. Present only on a "near me" search. */
   distanceKm?: number;
 }
@@ -249,7 +255,16 @@ export async function listStationsForMap(
 
   if (query.search) {
     const pattern = { $regex: escapeRegex(query.search), $options: 'i' };
-    base.$or = [{ name: pattern }, { stationCode: pattern }, { address: pattern }];
+    // Same fields as Module 4's list — including city/state/PIN, so a location typed into the
+    // search box finds the stations there.
+    base.$or = [
+      { name: pattern },
+      { stationCode: pattern },
+      { address: pattern },
+      { city: pattern },
+      { state: pattern },
+      { postalCode: pattern },
+    ];
   }
 
   if (query.companyId) {
@@ -323,7 +338,8 @@ export async function listPublicStations(
 ): Promise<MapStationsResult<PublicMapStation>> {
   // Level two of the filter. Resolved first so the station query stays a simple indexed
   // $in rather than a $lookup, and so "which companies are active" is one obvious line.
-  const activeCompanies = await Company.find({ status: 'active' }).select('_id').lean();
+  const activeCompanies = await Company.find({ status: 'active' }).select('_id name').lean();
+  const operatorNames = new Map(activeCompanies.map((company) => [String(company._id), company.name]));
 
   if (activeCompanies.length === 0) {
     return { stations: [], truncated: false };
@@ -340,12 +356,18 @@ export async function listPublicStations(
     const pattern = { $regex: escapeRegex(query.search), $options: 'i' };
     // Note: no stationCode here. It is an internal operational label, and matching on it
     // would let a driver confirm a code exists even though the response never returns one.
-    base.$or = [{ name: pattern }, { address: pattern }, { city: pattern }];
+    base.$or = [
+      { name: pattern },
+      { address: pattern },
+      { city: pattern },
+      { state: pattern },
+      { postalCode: pattern },
+    ];
   }
 
   const limit = query.limit ?? MAX_MAP_STATIONS;
 
-  type Found = Pick<IStation, 'name' | 'address' | 'city' | 'state' | 'latitude' | 'longitude' | 'status'> & {
+  type Found = Pick<IStation, 'name' | 'address' | 'city' | 'state' | 'latitude' | 'longitude' | 'status' | 'companyId'> & {
     _id: Types.ObjectId;
     distanceM?: number;
   };
@@ -379,7 +401,7 @@ export async function listPublicStations(
       { $limit: limit + 1 },
       {
         $project: {
-          name: 1, address: 1, city: 1, state: 1, latitude: 1, longitude: 1, status: 1, distanceM: 1,
+          name: 1, address: 1, city: 1, state: 1, latitude: 1, longitude: 1, status: 1, companyId: 1, distanceM: 1,
         },
       },
     ]);
@@ -387,7 +409,7 @@ export async function listPublicStations(
     found = await Station.find(base)
       .sort({ name: 1 })
       .limit(limit + 1)
-      .select('name address city state latitude longitude status')
+      .select('name address city state latitude longitude status companyId')
       .lean<Found[]>();
   }
 
@@ -407,10 +429,52 @@ export async function listPublicStations(
       latitude: station.latitude,
       longitude: station.longitude,
       status: station.status,
+      operatorName: operatorNames.get(String(station.companyId)) ?? null,
       ...(station.distanceM !== undefined
         ? { distanceKm: Math.round(station.distanceM / 100) / 10 }
         : {}),
       ...(availability.get(String(station._id)) ?? NO_CHARGERS),
     })),
   };
+}
+
+/* -------------------------------------------------------------------------- */
+/* City pickers                                                               */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The cities that actually have stations — what the City dropdown offers.
+ *
+ * WHY A LIST AND NOT A TEXT BOX. The city filter matches exactly, which is right for a filter
+ * (it must not turn "Delhi" into a fuzzy search), but a free-text box made it a guessing game:
+ * the stored value is "New Delhi", so typing "Delhi" returned nothing and looked like a bug.
+ * Offering the stored values removes the guess. Case-insensitive de-duplication, so "mumbai" and
+ * "Mumbai" typed by two admins do not appear twice.
+ */
+function distinctCities(values: unknown[]): string[] {
+  const seen = new Map<string, string>();
+  for (const value of values) {
+    if (typeof value !== 'string' || !value.trim()) continue;
+    const key = value.trim().toLowerCase();
+    if (!seen.has(key)) seen.set(key, value.trim());
+  }
+  return [...seen.values()].sort((a, b) => a.localeCompare(b));
+}
+
+/** Staff: cities among the stations this caller may see. Company-scoped like every staff read. */
+export async function listStationCities(actor: AuthUser): Promise<string[]> {
+  return distinctCities(await Station.distinct('city', applyCompanyScope(actor, {})));
+}
+
+/** Drivers: cities with at least one station they could actually be shown. Same two-level filter. */
+export async function listPublicStationCities(): Promise<string[]> {
+  const activeCompanies = await Company.find({ status: 'active' }).select('_id').lean();
+  if (activeCompanies.length === 0) return [];
+
+  return distinctCities(
+    await Station.distinct('city', {
+      status: 'active',
+      companyId: { $in: activeCompanies.map((company) => company._id) },
+    }),
+  );
 }

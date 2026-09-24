@@ -13,6 +13,7 @@ import { toMessage } from '@/lib/formatApiError';
 import { getUser, setUserStatus, updateUser } from '@/services/user.service';
 import { ROLE_LABELS, type User } from '@/types/api';
 import { buttonClasses } from '@/components/ui/Button';
+import { formatDateTime } from '@/lib/datetime';
 
 function UserDetails({ user, onChanged }: { user: User; onChanged: (user: User) => void }) {
   const { user: me } = useAuth();
@@ -147,10 +148,10 @@ function UserDetails({ user, onChanged }: { user: User; onChanged: (user: User) 
             </dd>
             <dt className="text-neutral-500">Last login</dt>
             <dd className="text-xs">
-              {user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : 'never'}
+              {user.lastLoginAt ? formatDateTime(user.lastLoginAt) : 'never'}
             </dd>
             <dt className="text-neutral-500">Joined</dt>
-            <dd className="text-xs">{new Date(user.createdAt).toLocaleString()}</dd>
+            <dd className="text-xs">{formatDateTime(user.createdAt)}</dd>
           </dl>
         )}
       </section>
@@ -172,11 +173,11 @@ function UserDetailContent() {
         <p className="text-sm text-neutral-500">Loading user&hellip;</p>
       ) : state.status === 'error' ? (
         <div className="space-y-3">
-          <StatusBadge tone="bad" label={`HTTP ${state.error.status}`} />
           <p className="text-sm font-medium">{state.error.message}</p>
           <p className="text-xs text-neutral-500">
-            A 403 here is the company scoping working: a CPO admin can only reach staff in their
-            own company.
+            {state.error.status === 403 || state.error.status === 404
+              ? 'This record does not exist, or it belongs to another company.'
+              : 'Please try again in a moment.'}
           </p>
           <button
             type="button" onClick={() => router.back()}

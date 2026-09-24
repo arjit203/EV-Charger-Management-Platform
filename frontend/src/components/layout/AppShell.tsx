@@ -18,10 +18,12 @@
  * chrome. One file changed, every staff page inherits it, no page file moves.
  * ============================================================================
  *
- * It renders `children` UNTOUCHED — no sidebar, no topbar — for:
+ * It renders `children` UNTOUCHED — no sidebar, no topbar — for the auth routes and the public
+ * status page, which have no session yet.
  *
- *   - the auth routes and the public landing page, which have no session yet;
- *   - DRIVERS, whose existing pages are deliberately not restructured by Module 15.
+ * DRIVERS GET THE SHELL TOO (real-world pass). Module 15 left them out, so every driver page
+ * was an island: no persistent navigation, and the bell and Sign out existed only on the home
+ * screen. They now get the same header and a sidebar with their own menu (see navigation.ts).
  *
  * The content slot is a `<div>`, not a `<main>`, because every existing page already
  * provides its own `<main>`. Nesting one inside another is invalid HTML, and the pages
@@ -55,14 +57,14 @@ export function AppShell({ children }: { children: ReactNode }) {
   const isNavOpen = navOpenAt === pathname;
 
   const isBareRoute = BARE_ROUTES.includes(pathname);
-  const isStaff = user !== null && user.role !== 'driver';
+  const isSignedIn = user !== null;
 
   /*
    * While the session is still resolving we render bare. Drawing a sidebar and then removing
    * it a moment later — or worse, drawing a staff sidebar before discovering the user is a
    * driver — is a visible flash of the wrong interface.
    */
-  if (isLoading || isBareRoute || !isStaff) {
+  if (isLoading || isBareRoute || !isSignedIn) {
     return <>{children}</>;
   }
 

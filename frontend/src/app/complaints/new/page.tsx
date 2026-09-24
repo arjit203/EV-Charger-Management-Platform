@@ -22,6 +22,7 @@ import { formatPaise } from '@/lib/money';
 import { createComplaint, getComplaint } from '@/services/complaint.service';
 import { getSession } from '@/services/session.service';
 import type { ComplaintCategory } from '@/types/api';
+import { formatDateTime } from '@/lib/datetime';
 
 const CATEGORIES = Object.keys(CATEGORY_LABELS) as ComplaintCategory[];
 
@@ -107,6 +108,20 @@ function NewComplaintContent() {
       {state.status === 'ok' && state.data && (
         <div className="mt-6 rounded-xl bg-neutral-500/5 p-4 text-sm">
           <p className="text-xs uppercase tracking-wide text-neutral-500">About this charge</p>
+          {(state.data.stationName || state.data.companyName) && (
+            <p className="mt-1 font-medium">
+              {[state.data.stationName, state.data.stationCity].filter(Boolean).join(', ')}
+              {state.data.companyName && (
+                <span className="font-normal text-neutral-500"> · {state.data.companyName}</span>
+              )}
+            </p>
+          )}
+          {state.data.chargerName && (
+            <p className="text-xs text-neutral-500">
+              {state.data.chargerName} · connector {state.data.connectorNumber}
+              {state.data.startedAt && ` · ${formatDateTime(state.data.startedAt)}`}
+            </p>
+          )}
           <p className="mt-1 tabular-nums">
             {state.data.energyConsumedKwh} kWh
             {state.data.amountPaise !== null && <> · {formatPaise(state.data.amountPaise)}</>}
@@ -164,7 +179,7 @@ function NewComplaintContent() {
         <button
           type="submit"
           disabled={isSaving}
-          className="w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-emerald-700 disabled:opacity-60"
+          className="w-full rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-[var(--accent-contrast)] transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-60"
         >
           {isSaving ? 'Sending…' : 'Submit'}
         </button>

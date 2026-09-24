@@ -22,6 +22,7 @@ import {
 } from '../models/chargingSession.model';
 import { Connector } from '../models/connector.model';
 import { MeterReading } from '../models/meterReading.model';
+import { lastEvidenceOfCharging } from '../utils/sessionEnd';
 import {
   OPEN_SESSION_STATUSES,
   SESSION_SWEEP_INTERVAL_MS,
@@ -400,7 +401,8 @@ async function failSessions(
 ): Promise<void> {
   for (const session of open) {
     session.status = 'failed';
-    session.endedAt = new Date();
+    // When charging actually stopped — not when we noticed. See utils/sessionEnd.ts.
+    session.endedAt = await lastEvidenceOfCharging(session);
     session.endMeterWh = session.lastMeterWh;
     session.energyConsumedWh = consumedWh(session.startMeterWh, session.lastMeterWh);
     session.stopReason = stopReason;

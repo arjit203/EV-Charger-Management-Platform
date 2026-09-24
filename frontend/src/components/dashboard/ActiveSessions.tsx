@@ -45,12 +45,14 @@ export function ActiveSessions({ initial }: { initial: ChargingSession[] }) {
 
   useSocketEvent<{ session: ChargingSession }>('session:statusChanged', ({ session }) => {
     setSessions((current) => {
+      const previous = current.find((row) => row.id === session.id);
       const without = current.filter((row) => row.id !== session.id);
 
       // Terminal sessions leave the table. Everything else is inserted or replaced in place.
       if (!OPEN_STATUSES.includes(session.status)) return without;
 
-      return [session, ...without].sort(
+      // MERGE onto the row we had: a push may lack the display labels the REST load carried.
+      return [{ ...previous, ...session }, ...without].sort(
         (a, b) =>
           new Date(b.startedAt ?? b.requestedAt).getTime() -
           new Date(a.startedAt ?? a.requestedAt).getTime(),
@@ -87,7 +89,8 @@ export function ActiveSessions({ initial }: { initial: ChargingSession[] }) {
           <table className="w-full min-w-[34rem] text-sm">
             <thead>
               <tr className="border-b border-neutral-200 text-left text-[11px] font-medium uppercase tracking-[0.08em] text-neutral-500 dark:border-neutral-800">
-                <th className="pb-2 font-medium">Connector</th>
+                <th className="pb-2 font-medium">Where</th>
+                <th className="pb-2 font-medium">Driver</th>
                 <th className="pb-2 font-medium">Status</th>
                 <th className="pb-2 text-right font-medium">Energy</th>
                 <th className="pb-2 text-right font-medium">Est. cost</th>
@@ -112,8 +115,15 @@ export function ActiveSessions({ initial }: { initial: ChargingSession[] }) {
                   <tr key={session.id} className="transition-colors hover:bg-neutral-500/5">
                     <td className="py-2.5">
                       <Link href={`/sessions/${session.id}`} className="underline underline-offset-2">
-                        #{session.connectorNumber}
+                        {session.stationName ?? 'Station'}
                       </Link>
+                      <span className="block text-[11px] text-neutral-500">
+                        {session.chargerName ?? 'Charger'} #{session.connectorNumber}
+                        {session.connectorType ? ` · ${session.connectorType}` : ''}
+                      </span>
+                    </td>
+                    <td className="py-2.5 text-neutral-600 dark:text-neutral-400">
+                      {session.driverName ?? '—'}
                     </td>
                     <td className="py-2.5">
                       <StatusBadge status={session.status} size="sm" />

@@ -118,15 +118,37 @@ export const ALLOWED_TRANSITIONS: Record<ComplaintStatus, ComplaintStatus[]> = {
 };
 
 /**
- * Transitions an operator may NOT make.
+ * What an OPERATOR may conclude — by CATEGORY, not across the board.
  *
- * An operator is field staff: acknowledging and working a ticket is the job. Concluding one, or
- * overturning a conclusion, is an administrative act — especially on a payment dispute, where
- * the resolution note is the only record of what was decided.
+ * THE EARLIER RULE WAS WRONG FOR THE JOB. Operators are the field / NOC staff who actually fix
+ * chargers: they read the fault, reset or release the plug, attend the site, and confirm it
+ * works. Forbidding them to resolve a ticket they fixed meant every hardware ticket waited for an
+ * admin to type "fixed" on their behalf — which is not how a CPO's support desk runs.
+ *
+ * The line that IS real is money. A payment dispute ends in a decision about a driver's balance,
+ * and that stays with an administrator; so do account problems (they belong to no company's
+ * hardware, and only reach the platform admin anyway). Operators can still work those tickets,
+ * add notes and pass them up — they just cannot conclude them.
+ */
+export const OPERATOR_RESOLVABLE_CATEGORIES: readonly ComplaintCategory[] = [
+  'charger_issue',
+  'session_issue',
+  'station_issue',
+  'other',
+];
+
+/**
+ * Transitions an operator may NOT make, whatever the category.
+ *
+ * Closing — with or without a resolution — skips or shortens the driver's chance to dispute (and
+ * closing unresolved is the duplicate / invalid / spam call), while overturning a resolution
+ * overrides a colleague's conclusion. Both are administrative calls.
  */
 export const ADMIN_ONLY_TRANSITIONS: { from: ComplaintStatus | '*'; to: ComplaintStatus }[] = [
-  { from: '*', to: 'resolved' },
-  { from: '*', to: 'closed' },
+  { from: 'open', to: 'closed' },
+  { from: 'in_progress', to: 'closed' },
+  // "Close now" on a resolved ticket cuts short the driver's window to dispute it.
+  { from: 'resolved', to: 'closed' },
   { from: 'resolved', to: 'open' },
 ];
 

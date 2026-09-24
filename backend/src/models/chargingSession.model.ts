@@ -25,6 +25,7 @@ import {
 } from '../constants/session';
 import { CHARGER_TYPES, type ChargerType } from '../constants/charger';
 import { CONNECTOR_TYPES, type ConnectorType } from '../constants/connector';
+import { ALL_ROLES, type Role } from '../constants/roles';
 
 export interface IChargingSession {
   /** OWNERSHIP. Always from the verified token, never from a request body. */
@@ -68,6 +69,18 @@ export interface IChargingSession {
 
   stopReason: StopReason | null;
   failureReason: string | null;
+
+  /**
+   * WHO asked for the stop, when it came from the platform rather than the charger's own button.
+   *
+   * `stopReason: 'Remote'` only says the stop arrived over OCPP. It cannot tell the driver pressing
+   * Stop apart from an operator force-stopping their car — and the driver deserves to know which,
+   * because one of them was not their decision. Every CPMS keeps this on the CDR for the same
+   * reason: the first support call after a force-stop is "why did my charge end?".
+   */
+  stoppedByRole: Role | null;
+  /** The staff member's stated reason for a force-stop. Shown to the driver. Null otherwise. */
+  stopNote: string | null;
 
   /* ----------------------------- Module 9: pricing ---------------------------- */
 
@@ -152,6 +165,9 @@ const chargingSessionSchema = new Schema<IChargingSession, ChargingSessionModel>
 
     stopReason: { type: String, enum: STOP_REASONS, default: null },
     failureReason: { type: String, maxlength: 200, default: null },
+
+    stoppedByRole: { type: String, enum: ALL_ROLES, default: null },
+    stopNote: { type: String, trim: true, maxlength: 200, default: null },
 
     /* ---------------------------- Module 9: pricing --------------------------- */
 
@@ -286,6 +302,23 @@ chargingSessionSchema.index(
   },
 );
 
+/**
+ * ONE OPEN SESSION PER DRIVER, enforced by MongoDB for the same reason as the per-connector rule.
+ *
+ * A driver has one car plugged in at a time; a second open session on the same account is either
+ * a double-tap or a mistake, and either way it would hold a second plug hostage and bill energy
+ * nobody can explain. The service checks first so it can name the session already running; this
+ * index is what holds when two taps race past that check.
+ */
+chargingSessionSchema.index(
+  { userId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { status: { $in: OPEN_SESSION_STATUSES } },
+    name: 'one_open_session_per_driver',
+  },
+);
+
 /** "My charging history, newest first" — the driver's main query. */
 chargingSessionSchema.index({ userId: 1, startedAt: -1 });
 
@@ -355,6 +388,23 @@ export interface PublicChargingSession {
   durationSeconds: number | null;
   stopReason: StopReason | null;
   failureReason: string | null;
+  stoppedByRole: Role | null;
+  stopNote: string | null;
+
+  /**
+   * Display labels, resolved at read time by `withSessionLabels` — never stored, so a renamed
+   * station reads correctly. Absent on the bare real-time payloads; the client keeps the ones it
+   * already has.
+   */
+  companyName?: string | null;
+  stationName?: string | null;
+  stationAddress?: string | null;
+  stationCity?: string | null;
+  chargerName?: string | null;
+  powerKw?: number | null;
+  /** Staff only — a driver already knows who they are. */
+  driverName?: string | null;
+  driverEmail?: string | null;
 
   /** Module 9. Null until the session ends. */
   appliedTariffId: string | null;
@@ -406,6 +456,8 @@ export function toPublicChargingSession(
         : null,
     stopReason: session.stopReason,
     failureReason: session.failureReason,
+    stoppedByRole: session.stoppedByRole ?? null,
+    stopNote: session.stopNote ?? null,
     appliedTariffId: session.appliedTariffId ? String(session.appliedTariffId) : null,
     appliedPricePerKwhPaise: session.appliedPricePerKwhPaise,
     amountPaise: session.amountPaise,

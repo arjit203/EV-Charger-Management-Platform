@@ -108,3 +108,15 @@ export const listPublicStations = asyncHandler(async (req: Request, res: Respons
 
   sendSuccess(res, result, 'Stations retrieved');
 });
+
+/** GET /stations/cities — the city dropdown for staff, company-scoped. */
+export const listStationCities = asyncHandler(async (req: Request, res: Response) => {
+  const cities = await stationMapService.listStationCities(requireUser(req));
+  sendSuccess(res, { cities }, 'Cities retrieved');
+});
+
+/** GET /stations/public/cities — the city dropdown for driver discovery. */
+export const listPublicStationCities = asyncHandler(async (_req: Request, res: Response) => {
+  const cities = await stationMapService.listPublicStationCities();
+  sendSuccess(res, { cities }, 'Cities retrieved');
+});

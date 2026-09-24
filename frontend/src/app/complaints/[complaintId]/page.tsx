@@ -27,20 +27,25 @@ import { useAsyncData } from '@/hooks/useAsyncData';
 import { formatPaise, formatRate } from '@/lib/money';
 import { toMessage } from '@/lib/formatApiError';
 import {
+  assignComplaint,
   confirmComplaint,
   getComplaint,
   reopenComplaint,
   setComplaintStatus,
   updateComplaint,
 } from '@/services/complaint.service';
+import { listUsers } from '@/services/user.service';
 import type {
   Complaint,
   ComplaintActor,
+  ComplaintCategory,
+  User,
   ComplaintHistoryEntry,
   ComplaintPriority,
   ComplaintStatus,
   DisputedSession,
 } from '@/types/api';
+import { formatDate, formatDateTime } from '@/lib/datetime';
 
 const PRIORITIES: ComplaintPriority[] = ['high', 'medium', 'low'];
 
@@ -56,11 +61,19 @@ const NEXT_STATUSES: Record<ComplaintStatus, ComplaintStatus[]> = {
 const AUTO_CLOSE_DAYS = 7;
 
 /**
- * Concluding a ticket, or overturning a conclusion, is an administrative act — an operator can
- * work one, not close it. Mirrors ADMIN_ONLY_TRANSITIONS on the server.
+ * Mirrors the server's operator rules (constants/complaint.ts):
+ *   - closing, and overturning a resolution, are admin-only for every category;
+ *   - resolving is open to operators for hardware / site / session problems — that is the work
+ *     they do — but payment and account tickets end in a decision about a driver's money or
+ *     account, so those are concluded by an admin.
  */
-function isAdminOnly(from: ComplaintStatus, to: ComplaintStatus): boolean {
-  return to === 'resolved' || to === 'closed' || (from === 'resolved' && to === 'open');
+const OPERATOR_RESOLVABLE: ComplaintCategory[] = ['charger_issue', 'session_issue', 'station_issue', 'other'];
+
+function isAdminOnly(from: ComplaintStatus, to: ComplaintStatus, category: ComplaintCategory): boolean {
+  if (to === 'closed') return true;
+  if (from === 'resolved' && to === 'open') return true;
+  if (to === 'resolved') return !OPERATOR_RESOLVABLE.includes(category);
+  return false;
 }
 
 /** Say what the button DOES, not the status it lands in — "Mark open" meant nothing to anyone. */
@@ -92,6 +105,209 @@ function addDays(iso: string, days: number): Date {
   return new Date(new Date(iso).getTime() + days * 86_400_000);
 }
 
+/** Who owns the ticket, and the controls to take, release or hand it over. */
+function Assignment({
+  complaint,
+  isAdmin,
+  onChanged,
+}: {
+  complaint: Complaint;
+  isAdmin: boolean;
+  onChanged: (complaint: Complaint) => void;
+}) {
+  const { user } = useAuth();
+  const [error, setError] = useState<string | null>(null);
+  const [isBusy, setIsBusy] = useState(false);
+
+  // Admins can hand the ticket to a colleague; only staff of the ticket's company can see it.
+  const loadStaff = useCallback(async (): Promise<User[]> => {
+    if (!isAdmin || !complaint.companyId) return [];
+    const page = await listUsers({ companyId: complaint.companyId, status: 'active', limit: 100 });
+    return page.items.filter((u) => u.role === 'cpo_admin' || u.role === 'operator');
+  }, [isAdmin, complaint.companyId]);
+  const { state: staffState } = useAsyncData(loadStaff);
+  const staff = staffState.status === 'ok' ? staffState.data : [];
+
+  async function assign(assigneeId: string | null) {
+    setIsBusy(true);
+    setError(null);
+    try {
+      onChanged(await assignComplaint(complaint.id, assigneeId));
+    } catch (caught) {
+      setError(toMessage(caught));
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  const mine = user && complaint.assignedTo === user.id;
+
+  return (
+    <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
+      <span className="text-neutral-500">Owner:</span>
+      <span className="font-medium">
+        {complaint.assignedTo ? (mine ? 'You' : (complaint.assigneeName ?? 'A colleague')) : 'Unassigned'}
+      </span>
+      {!mine && user && (
+        <button
+          type="button"
+          onClick={() => void assign(user.id)}
+          disabled={isBusy}
+          className="rounded-lg border border-neutral-300 px-3 py-1 text-xs font-medium transition-colors hover:bg-neutral-500/10 disabled:opacity-60 dark:border-neutral-700"
+        >
+          Assign to me
+        </button>
+      )}
+      {complaint.assignedTo && (mine || isAdmin) && (
+        <button
+          type="button"
+          onClick={() => void assign(null)}
+          disabled={isBusy}
+          className="rounded-lg border border-neutral-300 px-3 py-1 text-xs font-medium transition-colors hover:bg-neutral-500/10 disabled:opacity-60 dark:border-neutral-700"
+        >
+          Release to queue
+        </button>
+      )}
+      {isAdmin && staff.length > 0 && (
+        <select
+          value=""
+          onChange={(event) => event.target.value && void assign(event.target.value)}
+          disabled={isBusy}
+          aria-label="Assign to a colleague"
+          className="rounded-lg border border-neutral-300 bg-transparent px-2 py-1 text-xs dark:border-neutral-700"
+        >
+          <option value="">Assign to…</option>
+          {staff
+            .filter((u) => u.id !== complaint.assignedTo)
+            .map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.name} ({u.role === 'operator' ? 'operator' : 'admin'})
+              </option>
+            ))}
+        </select>
+      )}
+      {error && <p className="w-full text-xs text-red-600 dark:text-red-400">{error}</p>}
+    </div>
+  );
+}
+
+/** The internal work log — every entry kept, attributed and timed. Staff only. */
+function WorkNotes({ complaint }: { complaint: Complaint }) {
+  const notes = complaint.notes ?? [];
+  return (
+    <div className="mt-5">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+        Work notes <span className="font-normal normal-case">(internal — the driver never sees these)</span>
+      </h3>
+      {notes.length === 0 ? (
+        <p className="mt-2 text-sm text-neutral-500">No notes yet.</p>
+      ) : (
+        <ol className="mt-2 space-y-2">
+          {notes.map((n, index) => (
+            <li key={index} className="rounded-lg bg-neutral-500/5 p-3 text-sm">
+              <p className="whitespace-pre-wrap">{n.text}</p>
+              <p className="mt-1 text-xs text-neutral-500">
+                {n.byName ?? ACTOR_LABELS[n.byRole]} · {ACTOR_LABELS[n.byRole]} ·{' '}
+                {formatDateTime(n.at)}
+              </p>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
+
+/**
+ * WHO reported it, WHERE, on WHICH machine — the ticket header every help desk has.
+ *
+ * Without it a complaint was a subject line and some ids; a week after it was resolved nobody
+ * could tell which station it had been about. The driver sees the location part (it is their
+ * own report); staff also see the reporter's contact details so they can call back.
+ */
+function TicketDetails({ complaint, isStaff }: { complaint: Complaint; isStaff: boolean }) {
+  const rows: { label: string; value: React.ReactNode }[] = [];
+
+  if (isStaff && complaint.reporter) {
+    rows.push({
+      label: 'Reported by',
+      value: (
+        <>
+          {complaint.reporter.name}
+          <span className="block text-xs font-normal text-neutral-500">
+            {complaint.reporter.email}
+            {complaint.reporter.phone ? ` · ${complaint.reporter.phone}` : ''}
+          </span>
+        </>
+      ),
+    });
+  }
+  rows.push({ label: 'Operator', value: complaint.companyName ?? 'Platform (no station involved)' });
+  rows.push({
+    label: 'Station',
+    value: complaint.station ? (
+      <>
+        {isStaff ? (
+          <Link href={`/stations/${complaint.station.id}`} className="underline underline-offset-2">
+            {complaint.station.name}
+          </Link>
+        ) : (
+          complaint.station.name
+        )}
+        <span className="block text-xs font-normal text-neutral-500">
+          {complaint.station.address}, {complaint.station.city}
+        </span>
+      </>
+    ) : (
+      '—'
+    ),
+  });
+  rows.push({
+    label: 'Charger',
+    value: complaint.charger ? (
+      <>
+        {isStaff ? (
+          <Link href={`/chargers/${complaint.charger.id}`} className="underline underline-offset-2">
+            {complaint.charger.name}
+          </Link>
+        ) : (
+          complaint.charger.name
+        )}
+        <span className="block text-xs font-normal text-neutral-500">
+          {complaint.connectorNumber ? `Connector #${complaint.connectorNumber}` : 'Whole charger'}
+          {complaint.charger.ocppId ? ` · ${complaint.charger.ocppId}` : ''}
+        </span>
+      </>
+    ) : (
+      '—'
+    ),
+  });
+  if (complaint.chargingSessionId) {
+    rows.push({
+      label: 'Charging session',
+      value: (
+        <Link href={`/sessions/${complaint.chargingSessionId}`} className="underline underline-offset-2">
+          Open the session
+        </Link>
+      ),
+    });
+  }
+
+  return (
+    <section className="rounded-2xl border border-neutral-200 p-6 dark:border-neutral-800">
+      <h2 className="text-sm font-semibold">Ticket details</h2>
+      <dl className="mt-4 grid grid-cols-2 gap-4 text-sm sm:grid-cols-3">
+        {rows.map((row) => (
+          <div key={row.label}>
+            <dt className="text-xs text-neutral-500">{row.label}</dt>
+            <dd className="mt-0.5 font-medium">{row.value}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
 function StaffControls({
   complaint,
   onChanged,
@@ -103,18 +319,48 @@ function StaffControls({
   const isAdmin = user?.role === 'super_admin' || user?.role === 'cpo_admin';
 
   const [resolution, setResolution] = useState(complaint.resolution ?? '');
+  const [note, setNote] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
 
   const available = NEXT_STATUSES[complaint.status].filter(
-    (status) => isAdmin || !isAdminOnly(complaint.status, status),
+    (status) => isAdmin || !isAdminOnly(complaint.status, status, complaint.category),
   );
+  const blockedForOperator = !isAdmin
+    ? NEXT_STATUSES[complaint.status].filter((s) => isAdminOnly(complaint.status, s, complaint.category))
+    : [];
+
+  async function run(action: () => Promise<Complaint>) {
+    setIsBusy(true);
+    setError(null);
+    try {
+      onChanged(await action());
+      return true;
+    } catch (caught) {
+      setError(toMessage(caught));
+      return false;
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function addNote() {
+    if (await run(() => updateComplaint(complaint.id, { note: note.trim() }))) setNote('');
+  }
 
   async function move(status: ComplaintStatus) {
     setIsBusy(true);
     setError(null);
     try {
-      onChanged(await setComplaintStatus(complaint.id, status, resolution.trim() || undefined));
+      /*
+       * The reply to the driver goes ONLY with the moves that send it: resolving, or closing
+       * without resolving (where it is the reason). Sending it with "Start working" or "Put back
+       * in the queue" stamped a half-written draft onto the history, which the driver reads.
+       */
+      const sendsReply =
+        (status === 'resolved' || status === 'closed') && complaint.status !== 'resolved';
+      const note = sendsReply ? resolution.trim() || undefined : undefined;
+      onChanged(await setComplaintStatus(complaint.id, status, note));
     } catch (caught) {
       setError(toMessage(caught));
     } finally {
@@ -138,17 +384,6 @@ function StaffControls({
     }
   }
 
-  async function saveNote() {
-    setIsBusy(true);
-    setError(null);
-    try {
-      onChanged(await updateComplaint(complaint.id, { resolution: resolution.trim() }));
-    } catch (caught) {
-      setError(toMessage(caught));
-    } finally {
-      setIsBusy(false);
-    }
-  }
 
   if (complaint.status === 'closed') {
     return (
@@ -184,30 +419,83 @@ function StaffControls({
         know better — the driver never sees it.
       </p>
 
+      <Assignment complaint={complaint} isAdmin={isAdmin} onChanged={onChanged} />
+
+      {/*
+        THE OPERATOR'S PLAYBOOK, on the ticket itself. The old screen offered "Put back in queue"
+        and "Save note" and nothing else, which left the question "so how do I fix it?" unanswered.
+      */}
+      {complaint.charger && complaint.status !== 'resolved' && (
+        <div className="mt-4 rounded-lg bg-neutral-500/5 p-3 text-xs text-neutral-600 dark:text-neutral-400">
+          <p className="font-medium text-neutral-800 dark:text-neutral-200">How to work this ticket</p>
+          <ol className="mt-1 list-decimal space-y-0.5 pl-4">
+            <li>Take it (so nobody else drives to the same site).</li>
+            <li>
+              Open{' '}
+              <Link href={`/chargers/${complaint.charger.id}`} className="underline underline-offset-2">
+                {complaint.charger.name}
+              </Link>{' '}
+              — check it is online, its fault code and the connector status
+              {complaint.chargingSessionId && (
+                <>
+                  , and the{' '}
+                  <Link href={`/sessions/${complaint.chargingSessionId}`} className="underline underline-offset-2">
+                    session&apos;s meter readings
+                  </Link>
+                </>
+              )}
+              .
+            </li>
+            <li>Fix it remotely or on site, and log each step below as a work note.</li>
+            <li>
+              {OPERATOR_RESOLVABLE.includes(complaint.category)
+                ? 'Write the reply to the driver and mark it resolved — they get to confirm or reopen.'
+                : 'This is a payment/account decision: add your findings and leave it for an admin to resolve.'}
+            </li>
+          </ol>
+        </div>
+      )}
+
+      <WorkNotes complaint={complaint} />
+
       <label className="mt-4 block text-sm">
+        <span className="text-neutral-600 dark:text-neutral-400">Add a work note (internal)</span>
+        <textarea
+          value={note}
+          onChange={(event) => setNote(event.target.value)}
+          rows={2}
+          placeholder="What you checked or did — e.g. Charger was offline; power-cycled the unit at site."
+          className="mt-1.5 w-full rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
+        />
+      </label>
+      <button
+        type="button"
+        onClick={() => void addNote()}
+        disabled={isBusy || note.trim().length < 2}
+        className="mt-2 rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium transition-colors hover:bg-neutral-500/10 disabled:opacity-60 dark:border-neutral-700"
+      >
+        Add note
+      </button>
+
+      {/* Once resolved, the reply has been sent; re-editing it here would suggest otherwise. */}
+      {complaint.status !== 'resolved' && (
+      <label className="mt-6 block text-sm">
         <span className="text-neutral-600 dark:text-neutral-400">
-          {complaint.status === 'in_progress' ? 'Resolution / notes' : 'Notes'}
+          Reply to the driver <span className="text-neutral-400">(sent when you resolve or close)</span>
         </span>
         <textarea
           value={resolution}
           onChange={(event) => setResolution(event.target.value)}
-          rows={4}
-          placeholder="What did you find, and what did you do? Required to resolve, or to close without resolving."
+          rows={3}
+          placeholder="What was wrong and what was done, in words the driver understands. Required to resolve, or to close without resolving."
           className="mt-1.5 w-full rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
         />
       </label>
+      )}
 
       {error && <p className="mt-3 text-sm text-red-600 dark:text-red-400">{error}</p>}
 
       <div className="mt-4 flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => void saveNote()}
-          disabled={isBusy || resolution.trim().length === 0}
-          className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium transition-colors hover:bg-neutral-500/10 disabled:opacity-60 dark:border-neutral-700"
-        >
-          Save note
-        </button>
 
         {available.map((status) => (
           <button
@@ -218,7 +506,7 @@ function StaffControls({
             className={
               status === 'closed' || status === 'open'
                 ? 'rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium transition-colors hover:bg-neutral-500/10 disabled:opacity-60 dark:border-neutral-700'
-                : 'rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700 disabled:opacity-60'
+                : 'rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent-contrast)] transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-60'
             }
           >
             {actionLabel(complaint.status, status)}
@@ -229,18 +517,19 @@ function StaffControls({
       {complaint.status === 'resolved' && (
         <p className="mt-3 text-xs text-neutral-500">
           Waiting for the driver to confirm. It closes automatically on{' '}
-          {addDays(complaint.resolvedAt ?? complaint.updatedAt, AUTO_CLOSE_DAYS).toLocaleDateString()}{' '}
+          {formatDate(addDays(complaint.resolvedAt ?? complaint.updatedAt, AUTO_CLOSE_DAYS))}{' '}
           if they don&apos;t reply.
         </p>
       )}
 
-      {!isAdmin &&
-        NEXT_STATUSES[complaint.status].some((s) => isAdminOnly(complaint.status, s)) && (
-          <p className="mt-3 text-xs text-neutral-500">
-            Only an administrator can resolve, close or reopen a resolved complaint. You can work it
-            and add notes.
-          </p>
-        )}
+      {blockedForOperator.length > 0 && (
+        <p className="mt-3 text-xs text-neutral-500">
+          {blockedForOperator.includes('resolved')
+            ? 'Payment and account complaints are resolved by an administrator. '
+            : ''}
+          Closing a ticket, or reopening a resolved one, is also an administrator decision.
+        </p>
+      )}
     </section>
   );
 }
@@ -309,7 +598,7 @@ function DriverControls({
       <h2 className="text-sm font-semibold">Is the problem fixed?</h2>
       <p className="mt-1 text-xs text-neutral-500">
         If you don&apos;t reply, this closes automatically on{' '}
-        {addDays(complaint.resolvedAt ?? complaint.updatedAt, AUTO_CLOSE_DAYS).toLocaleDateString()}.
+        {formatDate(addDays(complaint.resolvedAt ?? complaint.updatedAt, AUTO_CLOSE_DAYS))}.
       </p>
 
       {error && <p className="mt-3 text-sm text-red-600 dark:text-red-400">{error}</p>}
@@ -351,7 +640,7 @@ function DriverControls({
             type="button"
             onClick={() => void run(() => confirmComplaint(complaint.id))}
             disabled={isBusy}
-            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700 disabled:opacity-60"
+            className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent-contrast)] transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-60"
           >
             Yes, it&apos;s fixed
           </button>
@@ -385,7 +674,7 @@ function History({ entries }: { entries: ComplaintHistoryEntry[] }) {
                 {' · '}
                 {ACTOR_LABELS[entry.byRole]}
                 {' · '}
-                {new Date(entry.at).toLocaleString()}
+                {formatDateTime(entry.at)}
               </span>
             </p>
             {entry.note && (
@@ -476,11 +765,12 @@ function ComplaintDetailContent() {
         <div className="space-y-6">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
+              <p className="font-mono text-xs text-neutral-500">{state.data.complaint.ticketRef}</p>
               <h1 className="text-2xl font-semibold">{state.data.complaint.subject}</h1>
               <p className="mt-1 text-sm text-neutral-500">
                 {CATEGORY_LABELS[state.data.complaint.category]}
                 {' · reported '}
-                {new Date(state.data.complaint.createdAt).toLocaleString()}
+                {formatDateTime(state.data.complaint.createdAt)}
                 {isStaff && ` · ${state.data.complaint.priority} priority`}
                 {state.data.complaint.reopenCount > 0 &&
                   ` · reopened ${state.data.complaint.reopenCount}×`}
@@ -500,6 +790,8 @@ function ComplaintDetailContent() {
             />
           </div>
 
+          <TicketDetails complaint={state.data.complaint} isStaff={isStaff} />
+
           <section className="rounded-2xl border border-neutral-200 p-6 dark:border-neutral-800">
             <h2 className="text-sm font-semibold">What was reported</h2>
             <p className="mt-2 whitespace-pre-wrap text-sm">{state.data.complaint.description}</p>
@@ -507,15 +799,19 @@ function ComplaintDetailContent() {
 
           {state.data.session && <DisputedCharge session={state.data.session} />}
 
-          {state.data.complaint.resolution && (
+          {/* Only a CONCLUDED resolution is shown here; a draft lives in the reply box below. */}
+          {state.data.complaint.resolution &&
+            (state.data.complaint.status === 'resolved' || state.data.complaint.status === 'closed') && (
             <section className="rounded-2xl border border-emerald-600/30 bg-emerald-500/5 p-6">
               <h2 className="text-sm font-semibold">
-                {state.data.complaint.resolvedAt ? 'Resolution' : 'Notes so far'}
+                {state.data.complaint.status === 'closed' && !state.data.complaint.resolvedAt
+                  ? 'Reason for closing'
+                  : 'Resolution'}
               </h2>
               <p className="mt-2 whitespace-pre-wrap text-sm">{state.data.complaint.resolution}</p>
               {state.data.complaint.resolvedAt && (
                 <p className="mt-2 text-xs text-neutral-500">
-                  Resolved {new Date(state.data.complaint.resolvedAt).toLocaleString()}
+                  Resolved {formatDateTime(state.data.complaint.resolvedAt)}
                 </p>
               )}
             </section>

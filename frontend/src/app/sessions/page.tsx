@@ -23,6 +23,7 @@ import { toMessage } from '@/lib/formatApiError';
 import { listSessions } from '@/services/session.service';
 import { CompanyFilter, FILTER_SELECT_CLASS, PlugTypeFilter, PowerTypeFilter } from '@/components/filters';
 import type { ChargerType, ConnectorType, SessionStatus } from '@/types/api';
+import { Pager, usePage } from '@/components/Pager';
 
 const STATUS_OPTIONS: SessionStatus[] = [
   'initiating',
@@ -42,9 +43,13 @@ function SessionListContent() {
   const [chargerType, setChargerType] = useState<ChargerType | ''>('');
   const [connectorType, setConnectorType] = useState<ConnectorType | ''>('');
 
+  // Filters change -> back to page 1 (see usePage).
+  const [page, setPage] = usePage(JSON.stringify([status, activeOnly, companyId, chargerType, connectorType]));
+
   const load = useCallback(
     () =>
       listSessions({
+        page,
         limit: 25,
         ...(status ? { status } : {}),
         ...(activeOnly ? { active: true } : {}),
@@ -52,7 +57,7 @@ function SessionListContent() {
         ...(chargerType ? { chargerType } : {}),
         ...(connectorType ? { connectorType } : {}),
       }),
-    [status, activeOnly, companyId, chargerType, connectorType],
+    [status, activeOnly, companyId, chargerType, connectorType, page],
   );
 
   const { state } = useAsyncData(load);
@@ -73,7 +78,7 @@ function SessionListContent() {
         {isDriver && (
           <Link
             href="/charge"
-            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700"
+            className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent-contrast)] transition-colors hover:bg-[var(--accent-hover)]"
           >
             Start charging
           </Link>
@@ -132,11 +137,16 @@ function SessionListContent() {
         {state.status === 'ok' &&
           state.data.items.map((session) => <SessionRow key={session.id} session={session} />)}
 
-        {state.status === 'ok' && state.data.total > state.data.items.length && (
-          <p className="pt-2 text-center text-xs text-neutral-500">
-            Showing {state.data.items.length} of {state.data.total}
-          </p>
+        {state.status === 'ok' && (
+          <Pager
+              page={state.data.page}
+              totalPages={state.data.totalPages}
+              total={state.data.total}
+              shown={state.data.items.length}
+              onPage={setPage}
+            />
         )}
+
       </div>
     </main>
   );

@@ -3,7 +3,9 @@ import { Router } from 'express';
 import {
   createStation,
   getStationById,
+  listPublicStationCities,
   listPublicStations,
+  listStationCities,
   listStations,
   listStationsForMap,
   updateStation,
@@ -89,6 +91,16 @@ router.get(
   '/public',
   validateQuery(publicStationsQuerySchema),
   listPublicStations,
+);
+
+/** The City dropdown's options. Same audience split as the two lists they filter. */
+router.get('/public/cities', listPublicStationCities);
+
+router.get(
+  '/cities',
+  authorize(ROLES.SUPER_ADMIN, ROLES.CPO_ADMIN, ROLES.OPERATOR),
+  requireActiveCompany,
+  listStationCities,
 );
 
 /**

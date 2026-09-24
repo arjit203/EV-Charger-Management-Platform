@@ -11,6 +11,7 @@
 
 import { useCallback, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { RelatedComplaints } from '@/components/RelatedComplaints';
 import Link from 'next/link';
 
 import { RequireAuth } from '@/components/RequireAuth';
@@ -27,6 +28,7 @@ import {
 } from '@/services/station.service';
 import { STATION_STATUS_LABELS, type Station, type StationStatus } from '@/types/api';
 import { buttonClasses } from '@/components/ui/Button';
+import { formatDateTime } from '@/lib/datetime';
 
 function statusTone(status: StationStatus) {
   if (status === 'active') return 'good' as const;
@@ -179,7 +181,7 @@ function StationDetails({
             <dd className="font-mono text-xs">{station.companyId}</dd>
 
             <dt className="text-neutral-500">Created</dt>
-            <dd className="text-xs">{new Date(station.createdAt).toLocaleString()}</dd>
+            <dd className="text-xs">{formatDateTime(station.createdAt)}</dd>
           </dl>
         )}
       </section>
@@ -220,11 +222,11 @@ function StationDetailContent() {
         <p className="text-sm text-neutral-500">Loading station&hellip;</p>
       ) : state.status === 'error' ? (
         <div className="space-y-3">
-          <StatusBadge tone="bad" label={`HTTP ${state.error.status}`} />
           <p className="text-sm font-medium">{state.error.message}</p>
           <p className="text-xs text-neutral-500">
-            A 403 here is the company scoping working: stations belonging to another company are
-            not reachable, whatever id is put in the URL.
+            {state.error.status === 403 || state.error.status === 404
+              ? 'This record does not exist, or it belongs to another company.'
+              : 'Please try again in a moment.'}
           </p>
           <button type="button" onClick={() => router.back()}
             className={buttonClasses('secondary')}>
@@ -232,7 +234,10 @@ function StationDetailContent() {
           </button>
         </div>
       ) : (
-        <StationDetails station={state.data} onChanged={setData} />
+        <>
+          <StationDetails station={state.data} onChanged={setData} />
+          <RelatedComplaints filter={{ stationId: state.data.id }} label="station" />
+        </>
       )}
 
       <Link href="/stations" className="text-sm text-neutral-500 underline underline-offset-4">

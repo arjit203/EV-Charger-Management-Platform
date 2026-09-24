@@ -36,6 +36,16 @@ export const startSessionSchema = z
   })
   .strict();
 
+/**
+ * Stopping a charge. `reason` is optional in the SHAPE because a driver stopping their own charge
+ * sends nothing; the service requires it when staff force-stop someone else's.
+ */
+export const stopSessionSchema = z
+  .object({
+    reason: z.string().trim().min(3, 'Say briefly why').max(200).optional(),
+  })
+  .strict();
+
 export const listSessionsQuerySchema = z
   .object({
     page: z.coerce.number().int().min(1).optional(),
@@ -64,5 +74,6 @@ export const readingsQuerySchema = z
   .strict();
 
 export type StartSessionInput = z.infer<typeof startSessionSchema>;
+export type StopSessionInput = z.infer<typeof stopSessionSchema>;
 export type ListSessionsQuery = z.infer<typeof listSessionsQuerySchema>;
 export type ReadingsQuery = z.infer<typeof readingsQuerySchema>;

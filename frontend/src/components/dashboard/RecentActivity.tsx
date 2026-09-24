@@ -26,10 +26,18 @@
  *                          no storage, no read state, no delivery guarantee.
  *
  * Every row is already company-scoped, because every endpoint it reads from is.
+ *
+ * WHAT A ROW MUST ANSWER. The first version said "Session on connector #1 completed" — true, and
+ * useless: which station? whose car? how much? A feed an operator cannot act on is noise. Every
+ * row now answers WHAT happened (headline, with the number that matters), WHERE and to WHOM
+ * (detail line), and links to the record that explains it. The labels come from the server
+ * (station, charger, driver, reporter), resolved on the same list endpoints.
  */
 
 import Link from 'next/link';
 
+import { CATEGORY_LABELS, COMPLAINT_STATUS_LABELS } from '@/components/ComplaintSummary';
+import { describeStop } from '@/components/SessionSummary';
 import { formatPaise } from '@/lib/money';
 import type { ChargingSession, Complaint, PaymentTransaction } from '@/types/api';
 import { EmptyState, Panel, relativeTime } from './primitives';
@@ -37,54 +45,130 @@ import { EmptyState, Panel, relativeTime } from './primitives';
 export interface ActivityItem {
   id: string;
   at: string;
+  /** What happened, with the number that matters. */
   text: string;
+  /** Where, on what, and who — the context that makes the row actionable. */
+  detail: string;
+  /** Shown as a chip so a mixed feed can be scanned by type. */
+  kind: 'Charge' | 'Complaint' | 'Payment';
   /** Null when the viewer's role has no page to open for this item. */
   href: string | null;
   tone: 'neutral' | 'good' | 'warn' | 'bad';
 }
 
-const SESSION_TEXT: Record<string, { text: string; tone: ActivityItem['tone'] }> = {
-  initiating: { text: 'is starting', tone: 'neutral' },
-  active: { text: 'started charging', tone: 'good' },
-  stopping: { text: 'is stopping', tone: 'neutral' },
-  completed: { text: 'completed', tone: 'good' },
-  failed: { text: 'failed', tone: 'bad' },
-};
+function kwh(session: ChargingSession): string {
+  return `${session.energyConsumedKwh.toFixed(2)} kWh`;
+}
+
+function isForceStopped(session: ChargingSession): boolean {
+  return Boolean(session.stoppedByRole && session.stoppedByRole !== 'driver');
+}
+
+function sessionHeadline(session: ChargingSession): { text: string; tone: ActivityItem['tone'] } {
+  const amount = session.amountPaise !== null ? ` · ${formatPaise(session.amountPaise)}` : '';
+  const forced = isForceStopped(session);
+
+  switch (session.status) {
+    case 'initiating':
+      return { text: 'Charge requested — waiting for the charger to confirm', tone: 'neutral' };
+    case 'active':
+      return { text: `Charging now — ${kwh(session)} so far`, tone: 'good' };
+    case 'stopping':
+      return { text: forced ? 'Force-stop sent to the charger' : 'Stop sent to the charger', tone: 'neutral' };
+    case 'completed':
+      return {
+        text: `${forced ? 'Charge force-stopped' : 'Charge completed'} — ${kwh(session)}${amount}`,
+        tone: forced ? 'warn' : 'good',
+      };
+    case 'failed':
+      return {
+        text: `Charge failed — ${session.failureReason ?? describeStop(session) ?? 'ended unexpectedly'}`,
+        tone: 'bad',
+      };
+    default:
+      return { text: `Charge ${String(session.status)}`, tone: 'neutral' };
+  }
+}
+
+function sessionDetail(session: ChargingSession): string {
+  const place = [session.stationName, session.stationCity].filter(Boolean).join(', ');
+  const plug = `${session.chargerName ?? 'Charger'} #${session.connectorNumber}${
+    session.connectorType ? ` ${session.connectorType}` : ''
+  }`;
+  return [
+    place || null,
+    plug,
+    session.driverName ?? null,
+    session.paymentStatus === 'unpaid' && session.amountPaise ? 'payment outstanding' : null,
+    isForceStopped(session) ? describeStop(session) : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+function complaintDetail(complaint: Complaint): string {
+  const place = complaint.station
+    ? `${complaint.station.name}, ${complaint.station.city}`
+    : 'No station (account / general)';
+  const machine = complaint.charger
+    ? `${complaint.charger.name}${complaint.connectorNumber ? ` #${complaint.connectorNumber}` : ''}`
+    : null;
+  const owner = complaint.assigneeName
+    ? `with ${complaint.assigneeName}`
+    : complaint.status === 'open'
+      ? 'unassigned'
+      : null;
+
+  return [
+    place,
+    machine,
+    complaint.reporter ? `reported by ${complaint.reporter.name}` : null,
+    COMPLAINT_STATUS_LABELS[complaint.status],
+    owner,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
 
 /**
- * Fold three different resources into one comparable shape.
+ * Fold three resources into one comparable shape, newest first.
  *
- * Each carries its own natural timestamp — a session's `updatedAt` is when it last changed
- * state, a complaint's `createdAt` is when it was filed, a payment's `updatedAt` is when it
- * settled. Sorting on "when this last meant something" is what makes a mixed feed readable.
+ * Each carries its own natural timestamp — a session's `updatedAt` is when it last changed state,
+ * a complaint's `updatedAt` when it was last worked, a payment's `paidAt` when money moved.
  */
 export function buildActivity(
   sessions: ChargingSession[],
   complaints: Complaint[],
   payments: PaymentTransaction[],
   canOpenPayments: boolean,
-  limit = 15,
+  limit = 12,
 ): ActivityItem[] {
   const items: ActivityItem[] = [];
+  const sessionById = new Map(sessions.map((s) => [s.id, s]));
 
   for (const session of sessions) {
-    const label = SESSION_TEXT[session.status] ?? { text: session.status, tone: 'neutral' as const };
+    const head = sessionHeadline(session);
     items.push({
       id: `session-${session.id}`,
       at: session.updatedAt,
-      text: `Session on connector #${session.connectorNumber} ${label.text}`,
+      kind: 'Charge',
+      text: head.text,
+      detail: sessionDetail(session),
       href: `/sessions/${session.id}`,
-      tone: label.tone,
+      tone: head.tone,
     });
   }
 
   for (const complaint of complaints) {
+    const concluded = complaint.status === 'resolved' || complaint.status === 'closed';
     items.push({
       id: `complaint-${complaint.id}`,
-      at: complaint.createdAt,
-      text: `Complaint filed: ${complaint.subject}`,
+      at: complaint.updatedAt,
+      kind: 'Complaint',
+      text: `${complaint.ticketRef} · ${CATEGORY_LABELS[complaint.category]} — "${complaint.subject}"`,
+      detail: complaintDetail(complaint),
       href: `/complaints/${complaint.id}`,
-      tone: complaint.priority === 'high' ? 'bad' : 'warn',
+      tone: concluded ? 'neutral' : complaint.priority === 'high' ? 'bad' : 'warn',
     });
   }
 
@@ -92,13 +176,20 @@ export function buildActivity(
     // Only settled money is interesting on an operations feed; a pending order is noise.
     if (payment.status !== 'paid') continue;
 
+    const session = payment.chargingSessionId ? sessionById.get(payment.chargingSessionId) : undefined;
     items.push({
       id: `payment-${payment.id}`,
       at: payment.paidAt ?? payment.updatedAt,
+      kind: 'Payment',
       text:
         payment.purpose === 'session_debit'
-          ? `Payment collected: ${formatPaise(payment.amountPaise)}`
-          : `Wallet topped up: ${formatPaise(payment.amountPaise)}`,
+          ? `Payment collected — ${formatPaise(payment.amountPaise)} from the driver's wallet`
+          : `Wallet top-up — ${formatPaise(payment.amountPaise)}`,
+      detail: session
+        ? `For the charge at ${sessionDetail(session)}`
+        : payment.purpose === 'session_debit'
+          ? 'Debited for a completed charge'
+          : 'A driver added money to their wallet',
       href: payment.chargingSessionId
         ? `/sessions/${payment.chargingSessionId}`
         : canOpenPayments
@@ -123,8 +214,18 @@ const TONE_DOT: Record<ActivityItem['tone'], string> = {
 function ActivityRow({ item }: { item: ActivityItem }) {
   return (
     <>
-      <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${TONE_DOT[item.tone]}`} />
-      <span className="min-w-0 flex-1 truncate text-sm">{item.text}</span>
+      <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${TONE_DOT[item.tone]}`} aria-hidden />
+      <span className="min-w-0 flex-1">
+        <span className="flex items-baseline gap-2">
+          <span className="shrink-0 rounded bg-neutral-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-600 dark:text-neutral-400">
+            {item.kind}
+          </span>
+          <span className="truncate text-sm font-medium">{item.text}</span>
+        </span>
+        {item.detail && (
+          <span className="mt-0.5 block truncate text-xs text-neutral-500">{item.detail}</span>
+        )}
+      </span>
       <span className="shrink-0 text-[11px] text-neutral-500">{relativeTime(item.at)}</span>
     </>
   );
@@ -132,22 +233,26 @@ function ActivityRow({ item }: { item: ActivityItem }) {
 
 export function RecentActivity({ items }: { items: ActivityItem[] }) {
   return (
-    <Panel title="Recent activity">
+    <Panel title="Recent activity" action={{ href: '/sessions', label: 'All sessions →' }}>
+      <p className="mb-2 text-xs text-neutral-500">
+        The latest charges, complaints and payments on your network. Red and amber rows need
+        attention — open any row for the full record.
+      </p>
       {items.length === 0 ? (
         <EmptyState message="Nothing has happened yet." />
       ) : (
-        <ul className="space-y-0.5">
+        <ul className="divide-y divide-neutral-200 dark:divide-neutral-800">
           {items.map((item) => (
             <li key={item.id}>
               {item.href ? (
                 <Link
                   href={item.href}
-                  className="flex items-baseline gap-2.5 rounded-lg px-2 py-1.5 transition-colors hover:bg-neutral-500/5"
+                  className="flex items-start gap-2.5 rounded-lg px-2 py-2 transition-colors hover:bg-neutral-500/5"
                 >
                   <ActivityRow item={item} />
                 </Link>
               ) : (
-                <div className="flex items-baseline gap-2.5 rounded-lg px-2 py-1.5">
+                <div className="flex items-start gap-2.5 rounded-lg px-2 py-2">
                   <ActivityRow item={item} />
                 </div>
               )}

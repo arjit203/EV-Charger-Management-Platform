@@ -213,10 +213,13 @@ section('3. DRIVER DISCOVERY - cross-company, and what it must not leak');
 
   /* THE KEY-SET ASSERTION. Not "companyId is undefined" - the EXACT set of keys, so a
    * field added to the shape later cannot leak silently. */
+  /* `operatorName` is in the set ON PURPOSE: the operator's brand name is public in every real
+   * charging app (OCPI's Location.operator). The company's ID and records are what stay out. */
   chk('driver payload key set is exactly the documented one',
     ['address', 'availableConnectors', 'chargers', 'chargersOnline', 'city', 'id', 'latitude',
-     'longitude', 'name', 'state', 'status', 'totalConnectors'],
+     'longitude', 'name', 'operatorName', 'state', 'status', 'totalConnectors'],
     Object.keys(n).sort());
+  chk('the operator is named', true, typeof n.operatorName === 'string' && n.operatorName.length > 0);
 
   chk('no companyId', false, 'companyId' in n);
   chk('no stationCode', false, 'stationCode' in n);
@@ -224,8 +227,10 @@ section('3. DRIVER DISCOVERY - cross-company, and what it must not leak');
   chk('no contactPhone', false, 'contactPhone' in n);
   chk('no createdAt', false, 'createdAt' in n);
   chk('no updatedAt', false, 'updatedAt' in n);
-  chk('no company name anywhere in the whole payload', false,
-    JSON.stringify(pub).includes('M14 Alpha'));
+  // The operator's brand is published ONLY as `operatorName` — nowhere else in the payload.
+  chk('the company name appears only as the operator brand', true,
+    JSON.stringify({ ...pub, stations: pub.stations.map(({ operatorName, ...rest }) => rest) }).includes('M14 Alpha') === false);
+  chk('and that brand is the owning company', true, String(n.operatorName).startsWith('M14 Alpha'));
 
   chk('but the driver DOES get what they need - availability', 3, n.availableConnectors);
   chk('and coordinates', [28.5355, 77.391], [n.latitude, n.longitude]);

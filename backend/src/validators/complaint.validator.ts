@@ -73,7 +73,10 @@ export const createComplaintSchema = z
  */
 export const updateComplaintSchema = z
   .object({
+    /** Draft of the reply the driver receives on resolution. */
     resolution: z.string().trim().min(1).max(2000).optional(),
+    /** An internal work note, appended to the log. Never shown to the driver. */
+    note: z.string().trim().min(2, 'Write a note').max(2000).optional(),
     priority: z.enum(COMPLAINT_PRIORITIES).optional(),
   })
   .strict()
@@ -100,6 +103,13 @@ export const reopenComplaintSchema = z
   })
   .strict();
 
+/** `null` releases the ticket back to the queue. */
+export const assignComplaintSchema = z
+  .object({
+    assigneeId: objectId.nullable(),
+  })
+  .strict();
+
 export const listComplaintsQuerySchema = z
   .object({
     page: z.coerce.number().int().min(1).optional(),
@@ -109,9 +119,12 @@ export const listComplaintsQuerySchema = z
     priority: z.enum(COMPLAINT_PRIORITIES).optional(),
     stationId: objectId.optional(),
     chargerId: objectId.optional(),
+    /** Staff only: tickets I own, or tickets nobody owns yet. */
+    assigned: z.enum(['me', 'unassigned']).optional(),
   })
   .strict();
 
+export type AssignComplaintInput = z.infer<typeof assignComplaintSchema>;
 export type CreateComplaintInput = z.infer<typeof createComplaintSchema>;
 export type UpdateComplaintInput = z.infer<typeof updateComplaintSchema>;
 export type ComplaintStatusInput = z.infer<typeof complaintStatusSchema>;

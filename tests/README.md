@@ -1,6 +1,6 @@
 # Tests
 
-**1,480 automated API checks across 24 suites, plus 104 browser checks across 2.**
+**1,508 automated API checks across 24 suites, plus 104 browser checks across 2.**
 
 These are executable HTTP, WebSocket and browser check scripts, not a unit-test framework —
 stated plainly because it matters when reading the numbers. They drive a **real running
@@ -97,16 +97,16 @@ works from any checkout.
 | `station` | 87 | Stations and company scope |
 | `charger` | 100 | Chargers, connectors, the ownership chain |
 | `multiconnector` | 21 | Two plugs on one charger, independently |
-| `ocpp` | 82 | The full OCPP frame set over real WebSockets |
-| `session` | 112 | Start, meter, stop, energy, concurrency |
+| `ocpp` | 83 | The full OCPP frame set over real WebSockets |
+| `session` | 118 | Start, meter, stop, energy, concurrency, one charge per driver, force-stop reasons |
 | `realtime` | 49 | Socket.IO rooms, scoping, silence assertions |
 | `tariff` | 73 | Pricing, activation, rate snapshots |
 | `wallet` | 83 | Recharge, verification, settlement |
 | `settlement-race` | 20 | Concurrent settlement, in-process |
-| `complaint` | 93 | Support workflow and transitions |
+| `complaint` | 112 | Support workflow, transitions, assignment, work notes, ticket context |
 | `notification` | 69 | Triggers, dedupe, delivery |
 | `analytics` | 117 | Aggregation correctness and date anchoring |
-| `map` | 72 | Marker data, driver discovery, suspension |
+| `map` | 74 | Marker data, driver discovery, suspension |
 | `dashboard` | 24 | The dashboard's data contract |
 | **`security-matrix`** | **55** | **Tampering across every resource and channel** |
 | **`integrity`** | **33** | **Reference chains, and the live data checked for orphans** |

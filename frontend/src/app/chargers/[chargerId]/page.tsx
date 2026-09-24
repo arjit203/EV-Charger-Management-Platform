@@ -14,6 +14,7 @@
 
 import { useCallback, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { RelatedComplaints } from '@/components/RelatedComplaints';
 import Link from 'next/link';
 
 import { ChargerForm } from '@/components/ChargerForm';
@@ -45,6 +46,7 @@ import {
   type ConnectorType,
 } from '@/types/api';
 import { buttonClasses } from '@/components/ui/Button';
+import { formatDateTime } from '@/lib/datetime';
 
 const CHARGER_STATUSES: ChargerStatus[] = ['available', 'unavailable', 'faulted', 'maintenance'];
 /**
@@ -148,7 +150,7 @@ function OcppSection({ charger, canManage }: { charger: Charger; canManage: bool
           </p>
           <p className="mt-1 text-xs text-red-700/80 dark:text-red-300/70">
             {charger.faultReportedAt
-              ? `Reported ${new Date(charger.faultReportedAt).toLocaleString()}. `
+              ? `Reported ${formatDateTime(charger.faultReportedAt)}. `
               : ''}
             No session can start on any connector until the charger reports itself healthy again.
           </p>
@@ -181,7 +183,7 @@ function OcppSection({ charger, canManage }: { charger: Charger; canManage: bool
         <dd className="text-xs">{connection?.connected ? 'connected' : 'not connected'}</dd>
         <dt className="text-neutral-500">Last heartbeat</dt>
         <dd className="text-xs">
-          {charger.lastHeartbeatAt ? new Date(charger.lastHeartbeatAt).toLocaleString() : 'never'}
+          {charger.lastHeartbeatAt ? formatDateTime(charger.lastHeartbeatAt) : 'never'}
         </dd>
         <dt className="text-neutral-500">Transactions</dt>
         <dd className="text-xs">
@@ -485,7 +487,7 @@ function ChargerDetails({ charger, onChanged }: { charger: Charger; onChanged: (
             </dd>
 
             <dt className="text-neutral-500">Added</dt>
-            <dd className="text-xs">{new Date(charger.createdAt).toLocaleString()}</dd>
+            <dd className="text-xs">{formatDateTime(charger.createdAt)}</dd>
           </dl>
         )}
       </section>
@@ -511,11 +513,11 @@ function ChargerDetailContent() {
         <p className="text-sm text-neutral-500">Loading charger&hellip;</p>
       ) : state.status === 'error' ? (
         <div className="space-y-3">
-          <StatusBadge tone="bad" label={`HTTP ${state.error.status}`} />
           <p className="text-sm font-medium">{state.error.message}</p>
           <p className="text-xs text-neutral-500">
-            A 403 here is the ownership chain working: the charger belongs to a station owned by
-            another company, so it is not reachable whatever id is used.
+            {state.error.status === 403 || state.error.status === 404
+              ? 'This record does not exist, or it belongs to another company.'
+              : 'Please try again in a moment.'}
           </p>
           <button type="button" onClick={() => router.back()}
             className={buttonClasses('secondary')}>
@@ -523,7 +525,10 @@ function ChargerDetailContent() {
           </button>
         </div>
       ) : (
-        <ChargerDetails charger={state.data} onChanged={setData} />
+        <>
+          <ChargerDetails charger={state.data} onChanged={setData} />
+          <RelatedComplaints filter={{ chargerId: state.data.id }} label="charger" />
+        </>
       )}
 
       <Link href="/chargers" className="text-sm text-neutral-500 underline underline-offset-4">

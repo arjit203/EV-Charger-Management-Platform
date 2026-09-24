@@ -34,6 +34,7 @@ import { formatPaise } from '@/lib/money';
 import { listPayments } from '@/services/wallet.service';
 import { CompanyFilter, FILTER_SELECT_CLASS } from '@/components/filters';
 import type { PaymentPurpose, PaymentStatus, PaymentTransaction } from '@/types/api';
+import { formatDateTime } from '@/lib/datetime';
 
 /**
  * The two purposes read very differently on a ledger, and Module 13 made the distinction
@@ -44,6 +45,24 @@ const PURPOSE_LABEL: Record<string, string> = {
   wallet_recharge: 'Wallet top-up (deposit)',
   session_debit: 'Charging session (sale)',
 };
+
+/**
+ * A top-up the driver started and never paid — they closed the Razorpay window.
+ *
+ * DISPLAY ONLY, deliberately. The record stays `pending`, because a late payment confirmation for
+ * that order must still be able to credit the wallet; failing it server-side could lose a real
+ * payment. But calling a day-old abandoned checkout "Pending" tells staff money is on its way when
+ * it almost certainly is not.
+ */
+const ABANDONED_AFTER_MS = 60 * 60 * 1000;
+
+function isAbandonedTopUp(payment: PaymentTransaction): boolean {
+  return (
+    payment.purpose === 'wallet_recharge' &&
+    payment.status === 'pending' &&
+    Date.now() - new Date(payment.createdAt).getTime() > ABANDONED_AFTER_MS
+  );
+}
 
 function PaymentsTable({ items }: { items: PaymentTransaction[] }) {
   if (items.length === 0) return <EmptyState message="No payments match." />;
@@ -64,11 +83,18 @@ function PaymentsTable({ items }: { items: PaymentTransaction[] }) {
           {items.map((payment) => (
             <tr key={payment.id} className="hover:bg-neutral-500/5">
               <td className="py-2.5 text-neutral-500">
-                {new Date(payment.paidAt ?? payment.createdAt).toLocaleString()}
+                {formatDateTime(payment.paidAt ?? payment.createdAt)}
               </td>
               <td className="py-2.5">{PURPOSE_LABEL[payment.purpose] ?? payment.purpose}</td>
               <td className="py-2.5">
-                <StatusBadge status={payment.status} size="sm" />
+                {isAbandonedTopUp(payment) ? (
+                  <StatusBadge tone="neutral" label="Not completed" size="sm" />
+                ) : payment.purpose === 'session_debit' && payment.status === 'pending' ? (
+                  // A charge the wallet could not cover yet — it settles on the driver's next top-up.
+                  <StatusBadge tone="warn" label="Awaiting balance" size="sm" />
+                ) : (
+                  <StatusBadge status={payment.status} size="sm" />
+                )}
               </td>
               <td className="py-2.5">
                 {payment.chargingSessionId ? (

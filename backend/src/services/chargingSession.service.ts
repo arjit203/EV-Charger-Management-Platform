@@ -29,6 +29,7 @@ import { Connector } from '../models/connector.model';
 import { Company } from '../models/company.model';
 import { Station } from '../models/station.model';
 import { Vehicle } from '../models/vehicle.model';
+import { User } from '../models/user.model';
 import { ROLES } from '../constants/roles';
 import {
   OPEN_SESSION_STATUSES,
@@ -43,6 +44,8 @@ import { logger } from '../utils/logger';
 import { describeSession, sessionRef } from '../utils/logLabels';
 import { formatPaise } from '../utils/money';
 import * as realtime from '../realtime/publisher';
+import { rememberSessionLabels } from '../realtime/sessionLabels';
+import { lastEvidenceOfCharging } from '../utils/sessionEnd';
 import * as notify from './notification.service';
 import { sendRemoteStart, sendRemoteStop } from '../ocpp/commands';
 import * as registry from '../ocpp/registry';
@@ -58,6 +61,106 @@ const DUPLICATE_KEY = 11000;
 
 function isDuplicateKeyError(error: unknown): boolean {
   return Boolean(error) && (error as { code?: number }).code === DUPLICATE_KEY;
+}
+
+/** Which unique index refused the insert — the connector one and the driver one mean different things. */
+function duplicateKeyField(error: unknown): string | null {
+  const pattern = (error as { keyPattern?: Record<string, unknown> }).keyPattern;
+  return pattern ? (Object.keys(pattern)[0] ?? null) : null;
+}
+
+/**
+ * The refusal a driver gets when they already have a charge running.
+ *
+ * Carries the running session's id so the app can LINK to it. The old behaviour was a silent
+ * redirect to the other session, which left the driver wondering what had just happened.
+ */
+async function alreadyChargingError(existing: ChargingSessionDocument): Promise<ApiError> {
+  const [station, charger] = await Promise.all([
+    Station.findById(existing.stationId).select('name').lean(),
+    Charger.findById(existing.chargerId).select('name').lean(),
+  ]);
+
+  const where = [station?.name, charger && `${charger.name} connector ${existing.connectorNumber}`]
+    .filter(Boolean)
+    .join(', ');
+
+  return ApiError.conflict(
+    `You already have a charge in progress${where ? ` at ${where}` : ''}. ` +
+      'Stop it or let it finish before starting another — one account charges one car at a time.',
+    { activeSessionId: String(existing._id) },
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Display labels                                                             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Attach the human names a session screen needs — operator, station, charger, and for staff the
+ * driver — with ONE query per collection for the whole page, never one per row.
+ *
+ * Resolved at READ time, not snapshotted. The billing snapshots (rate, AC/DC, plug) are frozen
+ * because they decide money; a station's display name decides nothing, and a renamed site should
+ * read with its current name everywhere.
+ *
+ * The operator (company) NAME goes to drivers too. It is the brand on the charger — OCPI publishes
+ * it as a Location's `operator` to every roaming app — and it is who a driver contacts when
+ * something goes wrong. What stays internal is the company's id and records, not its name.
+ */
+async function withSessionLabels(
+  actor: AuthUser,
+  sessions: ChargingSessionDocument[],
+  includeDriver = actor.role !== ROLES.DRIVER,
+): Promise<PublicChargingSession[]> {
+  if (sessions.length === 0) return [];
+
+  const ids = (key: 'companyId' | 'stationId' | 'chargerId' | 'userId') => [
+    ...new Set(sessions.map((s) => String(s[key]))),
+  ];
+  const isStaff = includeDriver;
+
+  const [companies, stations, chargers, drivers] = await Promise.all([
+    Company.find({ _id: { $in: ids('companyId') } }).select('name').lean(),
+    Station.find({ _id: { $in: ids('stationId') } }).select('name address city').lean(),
+    Charger.find({ _id: { $in: ids('chargerId') } }).select('name powerKw').lean(),
+    isStaff ? User.find({ _id: { $in: ids('userId') } }).select('name email').lean() : [],
+  ]);
+
+  const companyById = new Map(companies.map((c) => [String(c._id), c]));
+  const stationById = new Map(stations.map((s) => [String(s._id), s]));
+  const chargerById = new Map(chargers.map((c) => [String(c._id), c]));
+  const driverById = new Map(drivers.map((d) => [String(d._id), d]));
+
+  return sessions.map((session) => {
+    const station = stationById.get(String(session.stationId));
+    const charger = chargerById.get(String(session.chargerId));
+    const driver = driverById.get(String(session.userId));
+
+    return {
+      ...toPublicChargingSession(session),
+      companyName: companyById.get(String(session.companyId))?.name ?? null,
+      stationName: station?.name ?? null,
+      stationAddress: station?.address ?? null,
+      stationCity: station?.city ?? null,
+      chargerName: charger?.name ?? null,
+      powerKw: charger?.powerKw ?? null,
+      ...(isStaff ? { driverName: driver?.name ?? null, driverEmail: driver?.email ?? null } : {}),
+    };
+  });
+}
+
+async function withSessionLabel(
+  actor: AuthUser,
+  session: ChargingSessionDocument,
+): Promise<PublicChargingSession> {
+  const [labelled] = await withSessionLabels(actor, [session]);
+  return labelled;
+}
+
+interface StopAttribution {
+  role: AuthUser['role'];
+  note: string | null;
 }
 
 /**
@@ -372,6 +475,19 @@ export async function startSession(
   actor: AuthUser,
   input: StartSessionInput,
 ): Promise<PublicChargingSession> {
+  /*
+   * ONE CHARGE PER DRIVER — checked FIRST, before anything about the plug.
+   *
+   * A driver already charging who taps Start on the free plug next to them is not asking "is
+   * this plug usable?" — they are making a mistake the platform should name. A hardware verdict
+   * first would be true and beside the point. The partial unique index
+   * `one_open_session_per_driver` holds the line when two taps race past this check.
+   */
+  const running = await ChargingSession.findOne(
+    applyOwnerScope(actor, { status: { $in: OPEN_SESSION_STATUSES } }),
+  );
+  if (running) throw await alreadyChargingError(running);
+
   const connector = await Connector.findById(input.connectorId);
   if (!connector) throw ApiError.notFound('Connector not found.');
 
@@ -487,6 +603,13 @@ export async function startSession(
     });
   } catch (error) {
     if (isDuplicateKeyError(error)) {
+      if (duplicateKeyField(error) === 'userId') {
+        // Two taps from the same driver raced past the check at the top.
+        const existing = await ChargingSession.findOne(
+          applyOwnerScope(actor, { status: { $in: OPEN_SESSION_STATUSES } }),
+        );
+        if (existing) throw await alreadyChargingError(existing);
+      }
       // The partial unique index refused a second open session on this connector. This is the
       // race actually being caught, not a hypothetical.
       throw ApiError.conflict('A charging session is already in progress on this connector.');
@@ -522,6 +645,21 @@ export async function startSession(
       sessionRef(session),
   );
 
+  // Resolve the names once, now, so every later push about this session can carry them.
+  // Driver name included: these labels ride on pushes to the company's staff room too.
+  const labelled = await withSessionLabels(actor, [session], true);
+  const first = labelled[0];
+  rememberSessionLabels(String(session._id), {
+    companyName: first.companyName ?? null,
+    stationName: first.stationName ?? null,
+    stationAddress: first.stationAddress ?? null,
+    stationCity: first.stationCity ?? null,
+    chargerName: first.chargerName ?? null,
+    powerKw: first.powerKw ?? null,
+    driverName: first.driverName ?? null,
+    driverEmail: first.driverEmail ?? null,
+  });
+
   // The staff dashboard should see a session appear the moment it is requested, not only once
   // the charger confirms - an `initiating` row that never turns active is exactly the thing an
   // operator needs to notice.
@@ -529,7 +667,7 @@ export async function startSession(
 
   // Still `initiating`: the charger said "Accepted", which means it will try — not that it has
   // begun. Only StartTransaction moves it to `active`, which is why the API answers 202.
-  return toPublicChargingSession(session);
+  return withSessionLabel(actor, session);
 }
 
 /**
@@ -564,11 +702,16 @@ async function markFailed(
   session: ChargingSessionDocument,
   stopReason: 'Rejected' | 'StartTimeout',
   failureReason: string,
+  stoppedBy: StopAttribution | null = null,
 ): Promise<void> {
   session.status = 'failed';
   session.endedAt = new Date();
   session.stopReason = stopReason;
   session.failureReason = failureReason.slice(0, 200);
+  if (stoppedBy) {
+    session.stoppedByRole = stoppedBy.role;
+    session.stopNote = stoppedBy.note;
+  }
   await session.save();
 
   realtime.emitSessionStatus(toPublicChargingSession(session));
@@ -601,6 +744,7 @@ async function markFailed(
 export async function stopSession(
   actor: AuthUser,
   sessionId: string,
+  reason?: string,
 ): Promise<PublicChargingSession> {
   const session = await ChargingSession.findOne(
     applySessionReadScope(actor, { _id: sessionId }),
@@ -611,16 +755,40 @@ export async function stopSession(
     throw ApiError.conflict(`This session has already ended (${session.status}).`);
   }
 
+  /*
+   * A FORCE-STOP MUST SAY WHY. Ending someone else's charge is an intervention in their day —
+   * they may be counting on that range — and "why did my charge stop?" is the first thing they
+   * will ask. The reason goes on the session and into their notification. A driver stopping their
+   * own charge owes nobody an explanation.
+   */
+  const isForceStop = actor.role !== ROLES.DRIVER;
+  const note = reason?.trim() || null;
+
+  if (isForceStop && !note) {
+    throw ApiError.validation(
+      "Give a reason for stopping this driver's charge — they are notified and will see it.",
+    );
+  }
+
+  const attribution: StopAttribution = { role: actor.role, note: isForceStop ? note : null };
+
   if (session.status === 'initiating') {
     // Nothing to stop at the charger — it never confirmed a transaction to stop. Fail it here
     // rather than making the driver wait out the sweeper.
-    await markFailed(session, 'StartTimeout', 'Cancelled before the charger confirmed the start.');
-    return toPublicChargingSession(session);
+    await markFailed(
+      session,
+      'StartTimeout',
+      isForceStop
+        ? `Cancelled by the station operator: ${note}`
+        : 'Cancelled before the charger confirmed the start.',
+      attribution,
+    );
+    return withSessionLabel(actor, session);
   }
 
   if (session.status === 'stopping') {
     // Already asked. Repeating the command would be harmless but pointless.
-    return toPublicChargingSession(session);
+    return withSessionLabel(actor, session);
   }
 
   const charger = await Charger.findById(session.chargerId).select('ocppId');
@@ -630,7 +798,7 @@ export async function stopSession(
     // The charger vanished mid-session. There is nothing to send a stop to, so close the
     // record out now with the energy we have rather than leaving it open forever.
     session.status = 'failed';
-    session.endedAt = new Date();
+    session.endedAt = await lastEvidenceOfCharging(session);
     session.endMeterWh = session.lastMeterWh;
     session.energyConsumedWh = Math.max(
       0,
@@ -638,12 +806,14 @@ export async function stopSession(
     );
     session.stopReason = 'ChargerDisconnected';
     session.failureReason = 'The charger was offline when the stop was requested.';
+    session.stoppedByRole = attribution.role;
+    session.stopNote = attribution.note;
     await session.save();
 
     realtime.emitSessionStatus(toPublicChargingSession(session));
     void notify.sessionFailed(session);
 
-    return toPublicChargingSession(session);
+    return withSessionLabel(actor, session);
   }
 
   if (session.transactionId === null) {
@@ -666,6 +836,9 @@ export async function stopSession(
   }
 
   session.status = 'stopping';
+  // Recorded now, while we know who asked. StopTransaction arrives later carrying no actor at all.
+  session.stoppedByRole = attribution.role;
+  session.stopNote = attribution.note;
   await session.save();
 
   logger.info(
@@ -676,7 +849,7 @@ export async function stopSession(
 
   realtime.emitSessionStatus(toPublicChargingSession(session));
 
-  return toPublicChargingSession(session);
+  return withSessionLabel(actor, session);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -720,24 +893,8 @@ export async function listSessions(
     ChargingSession.countDocuments(scoped),
   ]);
 
-  /*
-   * The platform admin sees every company's sessions in one list, so each row needs to say whose
-   * it is. One query for the distinct companies on this page — not per row, and never for a
-   * scoped caller, who can only ever see their own company.
-   */
-  let companyNames: Map<string, string> | null = null;
-  if (actor.role === ROLES.SUPER_ADMIN && items.length > 0) {
-    const companies = await Company.find({ _id: { $in: [...new Set(items.map((s) => String(s.companyId)))] } })
-      .select('name')
-      .lean();
-    companyNames = new Map(companies.map((c) => [String(c._id), c.name]));
-  }
-
   return {
-    items: items.map((session) => ({
-      ...toPublicChargingSession(session),
-      ...(companyNames ? { companyName: companyNames.get(String(session.companyId)) ?? null } : {}),
-    })),
+    items: await withSessionLabels(actor, items),
     page,
     limit,
     total,
@@ -752,7 +909,7 @@ export async function getSessionById(
   const session = await ChargingSession.findOne(applySessionReadScope(actor, { _id: sessionId }));
   if (!session) throw sessionNotFound(actor);
 
-  return toPublicChargingSession(session);
+  return withSessionLabel(actor, session);
 }
 
 /**
@@ -792,5 +949,5 @@ export async function getActiveSessionForDriver(
     applyOwnerScope(actor, { status: { $in: OPEN_SESSION_STATUSES } }),
   ).sort({ requestedAt: -1 });
 
-  return session ? toPublicChargingSession(session) : null;
+  return session ? withSessionLabel(actor, session) : null;
 }

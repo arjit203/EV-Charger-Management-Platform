@@ -306,6 +306,14 @@ chk('same driver starting again on the busy connector -> 409', 409,
 chk('a DIFFERENT driver starting on the busy connector -> 409', 409,
   (await call('POST', '/charging/sessions', { token: drivers.d2.token, body: { connectorId: conA1 } })).status);
 
+/* ONE CHARGE PER DRIVER. d1 is charging on connector 1; the FREE connector 2 beside it must still
+ * be refused, with a message naming the running charge and its id so the app can link to it -
+ * not a silent redirect. */
+const secondPlug = await call('POST', '/charging/sessions', { token: drivers.d1.token, body: { connectorId: conA2 } });
+chk('a driver already charging cannot start a second plug -> 409', 409, secondPlug.status);
+chk('   the refusal names the running session', sessionId, secondPlug.body?.details?.activeSessionId);
+chk('   and says why in words', true, /already have a charge in progress/i.test(secondPlug.body?.message ?? ''));
+
 // Fire several starts at the same instant. Exactly one may survive; the rest must be refused
 // by the database, not by a lucky application check.
 const stormConnector = conA2;
@@ -537,7 +545,10 @@ const opTxn = opStart[2].transactionId;
 await sim2.send('MeterValues', { connectorId: 1, transactionId: opTxn, energyWh: 250, timestamp: new Date().toISOString() });
 await sleep(200);
 
-const opStopPromise = call('POST', `/charging/sessions/${opSession.id}/stop`, { token: staff.opA.token });
+chk('a force-stop must give a reason -> 422', 422,
+  (await call('POST', `/charging/sessions/${opSession.id}/stop`, { token: staff.opA.token })).status);
+const opStopPromise = call('POST', `/charging/sessions/${opSession.id}/stop`, {
+  token: staff.opA.token, body: { reason: 'Safety concern at the site' } });
 const opStopCall = await sim2.waitForCall('RemoteStopTransaction');
 chk('the operator force-stop reaches the charger', true, opStopCall !== null);
 sim2.reply(opStopCall.uid, { status: 'Accepted' });
@@ -548,6 +559,8 @@ await sleep(300);
 const opDone = await sessionState(opSession.id);
 chk('the force-stopped session completes normally', 'completed', opDone.status);
 chk('and the record matches what was actually delivered', 250, opDone.energyConsumedWh);
+chk('the record says WHO stopped it', 'operator', opDone.stoppedByRole);
+chk('and why - shown to the driver', 'Safety concern at the site', opDone.stopNote);
 
 /* ------------------------------------------------- CROSS-COMPANY CHARGE */
 console.log('\n=== A DRIVER MAY CHARGE AT ANY COMPANY STATION ===');

@@ -18,6 +18,7 @@ import {
   connectorIdParamSchema, stationIdParamSchema,
   listSessionsQuerySchema,
   readingsQuerySchema,
+  stopSessionSchema,
   sessionIdParamSchema,
   startSessionSchema,
 } from '../validators/session.validator';
@@ -130,6 +131,7 @@ router.post(
   '/sessions/:sessionId/stop',
   authorize(...ALL_ROLES),
   validateParams(sessionIdParamSchema),
+  validateBody(stopSessionSchema),
   stopSession,
 );
 

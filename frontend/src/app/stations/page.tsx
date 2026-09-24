@@ -16,9 +16,10 @@ import { CompanyFilter, FILTER_SELECT_CLASS } from '@/components/filters';
 import { StatusBadge } from '@/components/StatusBadge';
 import { useAuth } from '@/context/AuthContext';
 import { useAsyncData } from '@/hooks/useAsyncData';
-import { listStations } from '@/services/station.service';
+import { listStationCities, listStations } from '@/services/station.service';
 import type { Station, StationStatus } from '@/types/api';
 import { buttonClasses } from '@/components/ui/Button';
+import { Pager, usePage } from '@/components/Pager';
 
 function statusTone(status: StationStatus) {
   if (status === 'active') return 'good' as const;
@@ -52,19 +53,30 @@ function StationListContent() {
   const [city, setCity] = useState('');
   const [companyId, setCompanyId] = useState('');
 
+  // Filters change -> back to page 1 (see usePage).
+  const [page, setPage] = usePage(JSON.stringify([search, status, city, companyId]));
+
   const load = useCallback(
     () =>
       listStations({
+        page,
         search: search || undefined,
         status: status || undefined,
         city: city.trim() || undefined,
         companyId: companyId || undefined,
         limit: 50,
       }),
-    [search, status, city, companyId],
+    [search, status, city, companyId, page],
   );
 
   const { state } = useAsyncData(load);
+
+  // The City filter offers the cities that actually have stations. A free-text box made it a
+  // guessing game: "Delhi" never matched a station stored as "New Delhi".
+  const loadCities = useCallback(() => listStationCities('staff'), []);
+  const { state: citiesState } = useAsyncData(loadCities);
+  const cities = citiesState.status === 'ok' ? citiesState.data : [];
+
   const canCreate = user?.role === 'super_admin' || user?.role === 'cpo_admin';
 
   return (
@@ -93,9 +105,9 @@ function StationListContent() {
 
       <div className="flex flex-wrap gap-3">
         <input
-          type="search" placeholder="Search name, code or address…"
+          type="search" placeholder="Search name, code, area, city or PIN…"
           value={search} onChange={(e) => setSearch(e.target.value)}
-          className="min-w-0 flex-1 rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
+          className="min-w-[min(100%,20rem)] flex-1 rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
         />
         <select
           value={status} onChange={(e) => setStatus(e.target.value as StationStatus | '')}
@@ -107,11 +119,16 @@ function StationListContent() {
           <option value="inactive">Inactive</option>
           <option value="suspended">Suspended</option>
         </select>
-        <input
-          type="search" placeholder="City" aria-label="Filter by city"
+        <select
           value={city} onChange={(e) => setCity(e.target.value)}
-          className={`w-32 ${FILTER_SELECT_CLASS}`}
-        />
+          aria-label="Filter by city"
+          className={FILTER_SELECT_CLASS}
+        >
+          <option value="">All cities</option>
+          {cities.map((option) => (
+            <option key={option} value={option}>{option}</option>
+          ))}
+        </select>
         <CompanyFilter value={companyId} onChange={setCompanyId} />
       </div>
 
@@ -132,15 +149,16 @@ function StationListContent() {
               <StationRow key={item.id} station={item} />
             ))}
           </div>
-          <p className="text-xs text-neutral-500">
-            Showing {state.data.items.length} of {state.data.total}
-          </p>
+          <Pager
+            page={state.data.page}
+            totalPages={state.data.totalPages}
+            total={state.data.total}
+            shown={state.data.items.length}
+            onPage={setPage}
+          />
         </>
       )}
 
-      <Link href="/dashboard" className="text-sm text-neutral-500 underline underline-offset-4">
-        Back to dashboard
-      </Link>
     </main>
   );
 }

@@ -13,6 +13,7 @@ import { ApiError } from '../utils/ApiError';
 import { sendSuccess } from '../utils/ApiResponse';
 import { asyncHandler } from '../utils/asyncHandler';
 import type {
+  AssignComplaintInput,
   ComplaintStatusInput,
   CreateComplaintInput,
   ListComplaintsQuery,
@@ -108,4 +109,17 @@ export const reopenComplaint = asyncHandler(async (req: Request, res: Response) 
   );
 
   sendSuccess(res, { complaint }, 'Complaint reopened');
+});
+
+/** POST /complaints/:complaintId/assign — take, release or hand over a ticket. Staff only. */
+export const assignComplaint = asyncHandler(async (req: Request, res: Response) => {
+  const { assigneeId } = req.body as AssignComplaintInput;
+
+  const complaint = await complaintService.assignComplaint(
+    requireUser(req),
+    String(req.params.complaintId),
+    assigneeId,
+  );
+
+  sendSuccess(res, { complaint }, assigneeId ? 'Complaint assigned' : 'Complaint unassigned');
 });

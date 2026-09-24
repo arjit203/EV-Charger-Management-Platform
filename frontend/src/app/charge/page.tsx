@@ -14,7 +14,7 @@
  * the server sees all three.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
@@ -29,14 +29,18 @@ import {
 } from '@/services/session.service';
 import { listMyVehicles } from '@/services/vehicle.service';
 import { formatRate } from '@/lib/money';
-import type { ConnectorChargingView, Vehicle } from '@/types/api';
+import { AlreadyCharging } from '@/components/SessionSummary';
+import type { ChargingSession, ConnectorChargingView, Vehicle } from '@/types/api';
 
 function ConnectorCard({
   connector,
   vehicles,
+  blockedBy,
 }: {
   connector: ConnectorChargingView;
   vehicles: Vehicle[];
+  /** The driver's own running charge, which rules out starting this one. */
+  blockedBy: ChargingSession | null;
 }) {
   const router = useRouter();
   const [vehicleId, setVehicleId] = useState('');
@@ -103,7 +107,11 @@ function ConnectorCard({
         </p>
       </div>
 
-      {!connector.canStart ? (
+      {blockedBy ? (
+        <p className="mt-5 rounded-lg bg-neutral-500/10 p-3 text-sm text-neutral-600 dark:text-neutral-400">
+          This plug is free, but you can start it only after your current charge ends.
+        </p>
+      ) : !connector.canStart ? (
         <p className="mt-5 rounded-lg bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-400">
           {connector.unavailableReason ?? 'This connector cannot be used right now.'}
         </p>
@@ -139,7 +147,7 @@ function ConnectorCard({
             type="button"
             onClick={() => void start()}
             disabled={isStarting}
-            className="w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-emerald-700 disabled:opacity-60"
+            className="w-full rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-[var(--accent-contrast)] transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-60"
           >
             {isStarting ? 'Asking the charger…' : 'Start charging'}
           </button>
@@ -148,6 +156,14 @@ function ConnectorCard({
           </p>
         </div>
       )}
+
+      {/* Broken before you could even start? That is a complaint about the CHARGER, no session. */}
+      <Link
+        href={`/complaints/new?chargerId=${connector.chargerId}`}
+        className="mt-5 inline-block text-xs text-neutral-500 underline underline-offset-4"
+      >
+        Problem with this charger? Report it
+      </Link>
     </div>
   );
 }
@@ -167,19 +183,15 @@ function ChargeContent() {
 
   const { state } = useAsyncData(load);
 
-  // One open session at a time is enforced per connector by the database; the driver-facing
-  // rule is simpler still — finish the charge you already have.
-  useEffect(() => {
-    if (state.status === 'ok' && state.data.active) {
-      router.replace(`/sessions/${state.data.active.id}`);
-    }
-  }, [state, router]);
-
   return (
     <main className="mx-auto max-w-2xl px-6 py-12">
       <h1 className="text-2xl font-semibold">Start charging</h1>
       <p className="mt-2 text-sm text-neutral-500">
-        Scan the code on the charger, or paste a connector id below.
+        Scan the code on the charger, or paste a connector id below. Not at a charger yet?{' '}
+        <Link href="/map" className="font-medium text-[var(--accent)] underline underline-offset-4">
+          Find a station
+        </Link>{' '}
+        and pick a free plug there.
       </p>
 
       <form
@@ -218,8 +230,18 @@ function ChargeContent() {
           </p>
         )}
 
+        {state.status === 'ok' && state.data.active && (
+          <div className="mb-6">
+            <AlreadyCharging active={state.data.active} />
+          </div>
+        )}
+
         {state.status === 'ok' && state.data.connector && (
-          <ConnectorCard connector={state.data.connector} vehicles={state.data.vehicles} />
+          <ConnectorCard
+            connector={state.data.connector}
+            vehicles={state.data.vehicles}
+            blockedBy={state.data.active}
+          />
         )}
       </div>
 

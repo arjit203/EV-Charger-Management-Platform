@@ -20,6 +20,7 @@ import { formatRate } from '@/lib/money';
 import { toMessage } from '@/lib/formatApiError';
 import { listTariffs } from '@/services/tariff.service';
 import type { Tariff, TariffStatus } from '@/types/api';
+import { Pager, usePage } from '@/components/Pager';
 
 function TariffRow({ tariff }: { tariff: Tariff }) {
   return (
@@ -49,14 +50,18 @@ function TariffListContent() {
   const [companyId, setCompanyId] = useState('');
   const isPlatformAdmin = user?.role === 'super_admin';
 
+  // Filters change -> back to page 1 (see usePage).
+  const [page, setPage] = usePage(JSON.stringify([status, companyId]));
+
   const load = useCallback(
     () =>
       listTariffs({
+        page,
         limit: 50,
         ...(status ? { status } : {}),
         ...(companyId ? { companyId } : {}),
       }),
-    [status, companyId],
+    [status, companyId, page],
   );
 
   const { state } = useAsyncData(load);
@@ -76,7 +81,7 @@ function TariffListContent() {
         {canManage && (
           <Link
             href="/tariffs/new"
-            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700"
+            className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent-contrast)] transition-colors hover:bg-[var(--accent-hover)]"
           >
             New tariff
           </Link>
@@ -102,7 +107,7 @@ function TariffListContent() {
         </div>
       )}
 
-      <div className="mt-8 flex items-center gap-3">
+      <div className="mt-8 flex flex-wrap items-center gap-3">
         <select
           value={status}
           onChange={(event) => setStatus(event.target.value as TariffStatus | '')}
@@ -132,6 +137,16 @@ function TariffListContent() {
 
         {state.status === 'ok' &&
           state.data.items.map((tariff) => <TariffRow key={tariff.id} tariff={tariff} />)}
+
+        {state.status === 'ok' && (
+          <Pager
+              page={state.data.page}
+              totalPages={state.data.totalPages}
+              total={state.data.total}
+              shown={state.data.items.length}
+              onPage={setPage}
+            />
+        )}
       </div>
     </main>
   );

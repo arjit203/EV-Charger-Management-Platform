@@ -9,7 +9,6 @@
  */
 
 import { useCallback, useState } from 'react';
-import Link from 'next/link';
 
 import { RequireAuth } from '@/components/RequireAuth';
 import { StatusBadge } from '@/components/StatusBadge';
@@ -185,9 +184,6 @@ function MyVehiclesContent() {
         destroyed, so your charging history stays intact.
       </p>
 
-      <Link href="/dashboard" className="text-sm text-neutral-500 underline underline-offset-4">
-        Back to dashboard
-      </Link>
     </main>
   );
 }

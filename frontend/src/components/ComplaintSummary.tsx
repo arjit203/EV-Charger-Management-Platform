@@ -2,6 +2,7 @@ import Link from 'next/link';
 
 import { StatusBadge, type Tone } from '@/components/StatusBadge';
 import type { Complaint, ComplaintCategory, ComplaintPriority, ComplaintStatus } from '@/types/api';
+import { formatDateTime } from '@/lib/datetime';
 
 /**
  * Complaint vocabulary, translated once for the whole app.
@@ -52,13 +53,28 @@ export function ComplaintRow({
       href={`/complaints/${complaint.id}`}
       className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-neutral-200 p-4 transition-colors hover:bg-neutral-500/5 dark:border-neutral-800"
     >
+      {/*
+        A queue row must say WHERE and WHO without opening it — "Cable will not unlock" alone is
+        unanswerable a week later. Ticket number first, because that is what people quote.
+      */}
       <div className="min-w-0">
-        <p className="truncate font-medium">{complaint.subject}</p>
+        <p className="truncate font-medium">
+          <span className="mr-2 font-mono text-xs font-normal text-neutral-500">{complaint.ticketRef}</span>
+          {complaint.subject}
+        </p>
         <p className="mt-0.5 truncate text-xs text-neutral-500">
           {CATEGORY_LABELS[complaint.category]}
-          {' · '}
-          {new Date(complaint.createdAt).toLocaleDateString()}
-          {showPriority && complaint.priority === 'high' && ' · high priority'}
+          {complaint.station
+            ? ` · ${complaint.station.name}, ${complaint.station.city}`
+            : ' · no station'}
+          {complaint.charger &&
+            ` · ${complaint.charger.name}${complaint.connectorNumber ? ` #${complaint.connectorNumber}` : ''}`}
+        </p>
+        <p className="mt-0.5 truncate text-xs text-neutral-500">
+          {complaint.reporter ? `${complaint.reporter.name} · ` : ''}
+          {formatDateTime(complaint.createdAt)}
+          {showPriority && ` · ${complaint.priority} priority`}
+          {showPriority && (complaint.assigneeName ? ` · with ${complaint.assigneeName}` : complaint.status !== 'closed' && complaint.status !== 'resolved' ? ' · unassigned' : '')}
         </p>
       </div>
       <StatusBadge

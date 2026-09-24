@@ -77,7 +77,7 @@ export function TariffForm({
         <button
           type="submit"
           disabled={isSaving}
-          className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700 disabled:opacity-60"
+          className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent-contrast)] transition-colors hover:bg-[var(--accent-hover)] disabled:opacity-60"
         >
           {isSaving ? 'Saving…' : submitLabel}
         </button>

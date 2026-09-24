@@ -15,6 +15,7 @@
 import mongoose, { Types } from 'mongoose';
 
 import { ChargingSession } from '../models/chargingSession.model';
+import { Station } from '../models/station.model';
 import {
   PaymentTransaction,
   toPublicPaymentTransaction,
@@ -407,6 +408,12 @@ export async function settleSession(sessionId: string): Promise<SettlementResult
   const amountPaise = charging.amountPaise;
   let outcome: SettlementResult = { status: 'pending' };
 
+  // A statement line must say WHICH charge — "Charging session — ₹180" repeated down a wallet
+  // history tells the driver nothing. Read before the transaction; it is display text only.
+  const site = await Station.findById(charging.stationId).select('name').lean();
+  const kwh = (charging.energyConsumedWh / 1000).toFixed(2);
+  const debitDescription = `Charging at ${site?.name ?? 'a station'} · ${kwh} kWh — ${formatPaise(amountPaise)}`;
+
   const session = await mongoose.startSession();
   try {
     await session.withTransaction(async () => {
@@ -416,7 +423,7 @@ export async function settleSession(sessionId: string): Promise<SettlementResult
           userId: charging.userId,
           amountPaise,
           type: 'session_debit',
-          description: `Charging session — ${formatPaise(amountPaise)}`,
+          description: debitDescription,
           paymentTransactionId: payment!._id,
           chargingSessionId: charging._id,
         },

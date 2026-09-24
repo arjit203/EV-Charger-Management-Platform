@@ -27,9 +27,10 @@ import { hasUsableCoordinates } from '@/components/map/coordinates';
 import { useAuth } from '@/context/AuthContext';
 import { useAsyncData } from '@/hooks/useAsyncData';
 import { toMessage } from '@/lib/formatApiError';
-import { getMapStations, getPublicStations } from '@/services/station.service';
+import { getMapStations, getPublicStations, listStationCities } from '@/services/station.service';
 import type { UserLocation } from '@/components/map/StationMap';
-import { listStationConnectors } from '@/services/session.service';
+import { getActiveSession, listStationConnectors } from '@/services/session.service';
+import { AlreadyCharging } from '@/components/SessionSummary';
 import type { AnyMapStation, StationStatus } from '@/types/api';
 import { isStaffMapStation } from '@/types/api';
 
@@ -57,7 +58,15 @@ import { isStaffMapStation } from '@/types/api';
  */
 function StationConnectors({ stationId, canStart }: { stationId: string; canStart: boolean }) {
   // Wrapped, because an unwrapped closure is a new identity every render and refetches forever.
-  const load = useCallback(() => listStationConnectors(stationId), [stationId]);
+  // The driver's own running charge is fetched alongside: a free plug is still not startable by
+  // someone who is already charging, and saying so here beats a Start link that bounces.
+  const load = useCallback(async () => {
+    const [connectors, active] = await Promise.all([
+      listStationConnectors(stationId),
+      canStart ? getActiveSession() : Promise.resolve(null),
+    ]);
+    return { connectors, active };
+  }, [stationId, canStart]);
   const { state } = useAsyncData(load);
 
   if (state.status === 'loading') {
@@ -66,22 +75,29 @@ function StationConnectors({ stationId, canStart }: { stationId: string; canStar
   if (state.status === 'error') {
     return <p className="mt-4 text-sm text-red-700 dark:text-red-400">{state.error.message}</p>;
   }
-  if (state.data.length === 0) {
+  if (state.data.connectors.length === 0) {
     return <p className="mt-4 text-sm text-neutral-500">No connectors installed here yet.</p>;
   }
 
+  const { active } = state.data;
+
   return (
     <div className="mt-4">
+      {active && (
+        <div className="mb-4">
+          <AlreadyCharging active={active} />
+        </div>
+      )}
       <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Plugs</h3>
       <ul className="mt-2 space-y-2">
-        {state.data.map((c) => {
+        {state.data.connectors.map((c) => {
           const label = `${c.chargerName} · #${c.connectorNumber} · ${c.connectorType} · ${c.powerKw} kW`;
 
           /*
            * An unusable plug is still SHOWN, just not linked. Hiding it only prompts "why is
            * there nothing here?" — the reason the server already computed is the answer.
            */
-          if (!c.canStart || !canStart) {
+          if (!c.canStart || !canStart || active) {
             return (
               <li
                 key={c.connectorId}
@@ -89,7 +105,11 @@ function StationConnectors({ stationId, canStart }: { stationId: string; canStar
               >
                 <p className="font-medium">{label}</p>
                 <p className="mt-0.5 text-xs text-neutral-500">
-                  {c.canStart ? 'Available' : (c.unavailableReason ?? 'Unavailable right now.')}
+                  {!c.canStart
+                    ? (c.unavailableReason ?? 'Unavailable right now.')
+                    : active && active.connectorId === c.connectorId
+                      ? 'Your car is charging here'
+                      : 'Available'}
                 </p>
               </li>
             );
@@ -110,6 +130,24 @@ function StationConnectors({ stationId, canStart }: { stationId: string; canStar
           );
         })}
       </ul>
+      {canStart && (
+        // A driver who found a dead charger here — without ever starting a charge — can report
+        // it. One link per MACHINE: the complaint is anchored to the charger, not the site.
+        <p className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-neutral-500">
+          <span>Problem with a charger?</span>
+          {[...new Map(state.data.connectors.map((c) => [c.chargerId, c.chargerName])).entries()].map(
+            ([chargerId, chargerName]) => (
+              <Link
+                key={chargerId}
+                href={`/complaints/new?chargerId=${chargerId}`}
+                className="underline underline-offset-4"
+              >
+                Report {chargerName}
+              </Link>
+            ),
+          )}
+        </p>
+      )}
     </div>
   );
 }
@@ -209,6 +247,14 @@ function StationMapPage() {
 
   const { state, reload } = useAsyncData(load);
 
+  // City options are the cities that really have stations — see listStationCities.
+  const loadCities = useCallback(
+    () => listStationCities(isDriver ? 'driver' : 'staff'),
+    [isDriver],
+  );
+  const { state: citiesState } = useAsyncData(loadCities);
+  const cities = citiesState.status === 'ok' ? citiesState.data : [];
+
   const stations = useMemo(() => (state.status === 'ok' ? state.data : []), [state]);
   const placeableCount = useMemo(
     () => stations.filter(hasUsableCoordinates).length,
@@ -235,12 +281,6 @@ function StationMapPage() {
               : 'Your company’s stations, plotted from their stored coordinates.'}
           </p>
         </div>
-        <Link
-          href="/dashboard"
-          className="rounded-lg border border-neutral-300 px-3 py-2 text-sm transition-colors hover:bg-neutral-500/10 dark:border-neutral-700"
-        >
-          Back to dashboard
-        </Link>
       </header>
 
       {/* ----------------------------------------------------------- filters */}
@@ -256,19 +296,25 @@ function StationMapPage() {
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder={isDriver ? 'Name, address or city' : 'Name, code or address'}
+            placeholder={isDriver ? 'Name, area, city or PIN code' : 'Name, code, area, city or PIN'}
             className="rounded-lg border border-neutral-300 bg-transparent px-2.5 py-1.5 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
           />
         </label>
 
         <label className="flex flex-col gap-1 text-xs text-neutral-500">
           City
-          <input
+          <select
             value={city}
             onChange={(event) => setCity(event.target.value)}
-            placeholder="Exact city"
-            className="w-36 rounded-lg border border-neutral-300 bg-transparent px-2.5 py-1.5 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
-          />
+            className="w-40 rounded-lg border border-neutral-300 bg-transparent px-2.5 py-1.5 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
+          >
+            <option value="">All cities</option>
+            {cities.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
         </label>
 
         {/* Drivers get no status filter: the endpoint serves active stations only, and
@@ -441,6 +487,11 @@ function StationMapPage() {
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <h2 className="text-lg font-semibold">{selected.name}</h2>
+                  {'operatorName' in selected && selected.operatorName && (
+                    <p className="text-sm font-medium text-neutral-600 dark:text-neutral-300">
+                      Operated by {selected.operatorName}
+                    </p>
+                  )}
                   <p className="text-sm text-neutral-500">
                     {selected.address}, {selected.city}, {selected.state}
                   </p>

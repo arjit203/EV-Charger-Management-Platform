@@ -174,7 +174,27 @@ export async function listChargers(
 
   if (query.search) {
     const pattern = { $regex: escapeRegex(query.search), $options: 'i' };
-    base.$or = [{ name: pattern }, { chargerCode: pattern }, { ocppId: pattern }, { model: pattern }];
+
+    /*
+     * Also match by WHERE the charger is. "Show me the chargers in Mumbai" or "…at Andheri" is the
+     * commonest search an operator makes, and a charger document holds no location of its own —
+     * so the matching stations are resolved first (inside the caller's scope) and their chargers
+     * included.
+     */
+    const stationIds = await Station.distinct(
+      '_id',
+      applyCompanyScope(actor, {
+        $or: [{ name: pattern }, { stationCode: pattern }, { city: pattern }, { address: pattern }],
+      }),
+    );
+
+    base.$or = [
+      { name: pattern },
+      { chargerCode: pattern },
+      { ocppId: pattern },
+      { model: pattern },
+      { stationId: { $in: stationIds as Types.ObjectId[] } },
+    ];
   }
 
   if (query.companyId) {

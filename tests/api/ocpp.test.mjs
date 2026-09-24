@@ -323,7 +323,10 @@ chk('24. cumulative energy strictly increases', true,
   readings.every((r, i) => i === 0 || r.wh > readings[i - 1].wh));
 
 console.log('=== REMOTE STOP ===');
-const stopRes = call('POST', `/charging/sessions/${sessionId}/stop`, { token: staff.cpoA.token });
+chk('   a force-stop with no reason -> 422 (the driver is told why)', 422,
+  (await call('POST', `/charging/sessions/${sessionId}/stop`, { token: staff.cpoA.token })).status);
+const stopRes = call('POST', `/charging/sessions/${sessionId}/stop`, {
+  token: staff.cpoA.token, body: { reason: 'Scheduled maintenance' } });
 const stopCall = await sim.waitForCall('RemoteStopTransaction');
 chk('21. RemoteStopTransaction reached the charger', true, stopCall !== null);
 chk('21. addressed by transactionId', transactionId, stopCall?.payload?.transactionId);

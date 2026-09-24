@@ -74,6 +74,11 @@ export function StationList({
                   </span>
                 )}
               </p>
+              {'operatorName' in station && station.operatorName && (
+                <p className="mt-0.5 text-xs font-medium text-neutral-600 dark:text-neutral-300">
+                  {station.operatorName}
+                </p>
+              )}
               <p className="mt-0.5 text-xs text-neutral-500">
                 {station.address}, {station.city}
               </p>

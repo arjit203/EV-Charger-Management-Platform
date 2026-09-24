@@ -19,6 +19,7 @@ import { useAsyncData } from '@/hooks/useAsyncData';
 import { listChargers } from '@/services/charger.service';
 import type { Charger, ChargerStatus, ChargerType, ConnectorType } from '@/types/api';
 import { buttonClasses } from '@/components/ui/Button';
+import { Pager, usePage } from '@/components/Pager';
 
 export function chargerStatusTone(status: ChargerStatus) {
   if (status === 'available') return 'good' as const;
@@ -73,9 +74,13 @@ function ChargerListContent() {
   const [connectivity, setConnectivity] = useState<'' | 'online' | 'offline'>('');
   const [companyId, setCompanyId] = useState('');
 
+  // Filters change -> back to page 1 (see usePage).
+  const [page, setPage] = usePage(JSON.stringify([search, status, chargerType, connectorType, connectivity, companyId, stationId]));
+
   const load = useCallback(
     () =>
       listChargers({
+        page,
         search: search || undefined,
         status: status || undefined,
         chargerType: chargerType || undefined,
@@ -85,7 +90,7 @@ function ChargerListContent() {
         stationId,
         limit: 50,
       }),
-    [search, status, chargerType, connectorType, connectivity, companyId, stationId],
+    [search, status, chargerType, connectorType, connectivity, companyId, stationId, page],
   );
 
   const { state } = useAsyncData(load);
@@ -119,9 +124,9 @@ function ChargerListContent() {
 
       <div className="flex flex-wrap gap-3">
         <input
-          type="search" placeholder="Search name, code, OCPP id or model…"
+          type="search" placeholder="Search name, code, OCPP id, model, station or city…"
           value={search} onChange={(e) => setSearch(e.target.value)}
-          className="min-w-0 flex-1 rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
+          className="min-w-[min(100%,20rem)] flex-1 rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
         />
         <CompanyFilter value={companyId} onChange={setCompanyId} />
         <PowerTypeFilter value={chargerType} onChange={setChargerType} />
@@ -166,15 +171,16 @@ function ChargerListContent() {
               <ChargerRow key={item.id} charger={item} />
             ))}
           </div>
-          <p className="text-xs text-neutral-500">
-            Showing {state.data.items.length} of {state.data.total}
-          </p>
+          <Pager
+            page={state.data.page}
+            totalPages={state.data.totalPages}
+            total={state.data.total}
+            shown={state.data.items.length}
+            onPage={setPage}
+          />
         </>
       )}
 
-      <Link href="/dashboard" className="text-sm text-neutral-500 underline underline-offset-4">
-        Back to dashboard
-      </Link>
     </main>
   );
 }

@@ -26,7 +26,15 @@ export const getHealth = asyncHandler(async (_req: Request, res: Response) => {
     environment: env.nodeEnv,
     uptimeSeconds: Math.round(process.uptime()),
     timestamp: new Date().toISOString(),
-    database,
+    /*
+     * The health check is PUBLIC and unauthenticated, so in production it reports the database
+     * STATE only. The cluster hostname and last connection error are infrastructure detail a
+     * stranger has no use for except reconnaissance; they stay visible in development, where the
+     * person reading them is the one fixing the connection.
+     */
+    database: env.isProduction
+      ? { state: database.state, name: null, host: null, lastError: null }
+      : database,
   };
 
   sendSuccess(

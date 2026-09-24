@@ -64,12 +64,16 @@ export function Sidebar({ role, pathname }: { role: Role; pathname: string }) {
       ))}
 
       {/*
-        * Said in the UI as well as in the code, because it is the single most misunderstood
-        * thing about an admin interface: this rail is convenience, not a permission boundary.
+        * The developer note that used to sit here ("Access is enforced by the API, not by this
+        * menu") was true and belonged in the code, not in front of every operator. The rail's
+        * foot now carries something they can use: the public system status page.
         */}
-      <p className="mt-auto px-3 pb-2 pt-6 text-[10px] leading-relaxed text-neutral-400">
-        Menu reflects your role. Access is enforced by the API, not by this menu.
-      </p>
+      <Link
+        href="/"
+        className="mt-auto flex items-center gap-2 rounded-lg px-3 py-2 text-xs text-neutral-500 transition-colors hover:bg-neutral-500/10 hover:text-neutral-200"
+      >
+        System status
+      </Link>
     </nav>
   );
 }

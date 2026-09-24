@@ -182,7 +182,7 @@ function OperationsDashboard() {
         <StatCard
           label="Energy today"
           value={`${today?.energyKwh ?? 0} kWh`}
-          sub={`${sessions.energyKwh.toLocaleString()} kWh in the ${windowLabel}`}
+          sub={`${sessions.energyKwh.toLocaleString('en-IN')} kWh in the ${windowLabel}`}
         />
 
         {/*
@@ -247,6 +247,7 @@ function OperationsDashboard() {
               value: point.sessions,
               display: `${point.sessions} session${point.sessions === 1 ? '' : 's'}`,
             }))}
+            unit="sessions"
             emptyMessage="No sessions in this period."
           />
         </Panel>

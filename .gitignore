@@ -12,9 +12,5 @@ logs/
 
 .DS_Store
 
-# Personal study / interview-preparation notes.
-# Not part of the project — kept locally only.
-docs/learning/
-notes/
-scratch/
-*.private.md
+# Screenshots written by the browser test suites on every run — outputs, not sources.
+tests/browser/*.png

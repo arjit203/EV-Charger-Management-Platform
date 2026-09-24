@@ -18,7 +18,8 @@
     "fix:settlement-backoff": "tsx src/scripts/backfillSettlementBackoff.ts",
     "fix:arrears": "tsx src/scripts/clearArrears.ts",
     "fix:session-hardware": "tsx src/scripts/backfillSessionHardware.ts",
-    "fix:station-location": "tsx src/scripts/backfillStationLocation.ts"
+    "fix:station-location": "tsx src/scripts/backfillStationLocation.ts",
+    "fix:session-end": "tsx src/scripts/backfillSessionEnd.ts"
   },
   "keywords": [],
   "author": "",

@@ -43,6 +43,7 @@ import type {
   ChargingSession,
   ConnectorStatus,
 } from '@/types/api';
+import { formatTime } from '@/lib/datetime';
 
 interface ConnectorStatusEvent {
   connectorId: string;
@@ -184,7 +185,7 @@ function MonitorContent() {
           : charger,
       ),
     });
-    setLastEventAt(new Date().toLocaleTimeString());
+    setLastEventAt(formatTime(new Date()));
   });
 
   /*
@@ -203,12 +204,12 @@ function MonitorContent() {
           : charger,
       ),
     });
-    setLastEventAt(new Date().toLocaleTimeString());
+    setLastEventAt(formatTime(new Date()));
   });
 
   useSocketEvent<ConnectorStatusEvent>('connector:statusChanged', (event) => {
     setConnectors((current) => ({ ...current, [event.connectorId]: event }));
-    setLastEventAt(new Date().toLocaleTimeString());
+    setLastEventAt(formatTime(new Date()));
   });
 
   useSocketEvent<{ session: ChargingSession }>('session:statusChanged', ({ session }) => {
@@ -219,14 +220,16 @@ function MonitorContent() {
     if (stationId && session.stationId !== stationId) return;
 
     const open = ['initiating', 'active', 'stopping'].includes(session.status);
+    const previous = state.data.sessions.find((s) => s.id === session.id);
     const without = state.data.sessions.filter((s) => s.id !== session.id);
 
     setData({
       ...state.data,
-      // A finished session leaves the live list rather than lingering as a stale row.
-      sessions: open ? [session, ...without] : without,
+      // A finished session leaves the live list rather than lingering as a stale row. Merged,
+      // so labels from the REST load survive a push that does not carry them.
+      sessions: open ? [{ ...previous, ...session }, ...without] : without,
     });
-    setLastEventAt(new Date().toLocaleTimeString());
+    setLastEventAt(formatTime(new Date()));
   });
 
   useSocketEvent<MeterUpdateEvent>('session:meterUpdate', (event) => {
@@ -244,7 +247,7 @@ function MonitorContent() {
           : session,
       ),
     });
-    setLastEventAt(new Date().toLocaleTimeString());
+    setLastEventAt(formatTime(new Date()));
   });
 
   /* ------------------------------------------------ derived, never stored ------ */
@@ -398,7 +401,7 @@ function MonitorContent() {
                       {' · '}
                       {charger.chargerType} {charger.powerKw} kW
                       {charger.lastHeartbeatAt
-                        ? ` · beat ${new Date(charger.lastHeartbeatAt).toLocaleTimeString()}`
+                        ? ` · beat ${formatTime(charger.lastHeartbeatAt)}`
                         : ''}
                     </p>
                   </div>
@@ -467,10 +470,16 @@ function MonitorContent() {
                   className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-neutral-200 p-4 transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-soft)] dark:border-neutral-800"
                 >
                   <div className="min-w-0">
-                    <p className="truncate font-medium tabular-nums">{formatEnergy(session)}</p>
+                    <p className="truncate font-medium">
+                      {session.stationName ?? 'Station'}
+                      <span className="ml-2 font-normal tabular-nums text-neutral-500">
+                        {formatEnergy(session)}
+                      </span>
+                    </p>
                     <p className="mt-0.5 truncate text-xs text-neutral-500">
                       {session.companyName && `${session.companyName} · `}
-                      connector {session.connectorNumber}
+                      {session.driverName && `${session.driverName} · `}
+                      {session.chargerName ? `${session.chargerName} ` : ''}connector {session.connectorNumber}
                       {session.connectorType && ` · ${session.connectorType}`}
                       {session.chargerType && ` · ${session.chargerType}`}
                       {session.transactionId !== null ? ` · txn ${session.transactionId}` : ''}

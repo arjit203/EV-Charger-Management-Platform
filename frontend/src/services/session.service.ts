@@ -118,9 +118,11 @@ export async function startSession(input: {
  * One call, two meanings, decided by the server from the caller's role: a driver stops their
  * own session, an operator or CPO admin force-stops one at their own station.
  */
-export async function stopSession(sessionId: string): Promise<ChargingSession> {
+export async function stopSession(sessionId: string, reason?: string): Promise<ChargingSession> {
+  // Staff must give a reason (the driver is told it); a driver stopping their own charge sends none.
   const { session } = await apiRequest<SessionPayload>(`/charging/sessions/${sessionId}/stop`, {
     method: 'POST',
+    body: reason ? { reason } : {},
   });
   return session;
 }

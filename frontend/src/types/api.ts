@@ -381,8 +381,20 @@ export interface ChargingSession {
   chargerType: ChargerType | null;
   /** The plug used, as it was when the session started. Null on very old sessions. */
   connectorType: ConnectorType | null;
-  /** Only present for the platform admin, who sees every company's sessions in one list. */
+  /*
+   * Display labels, resolved by the server at read time. ABSENT on real-time payloads, so a screen
+   * merging a socket update must keep the ones it already had.
+   */
+  /** The operator (CPO) whose charger this is — the brand on the machine. */
   companyName?: string | null;
+  stationName?: string | null;
+  stationAddress?: string | null;
+  stationCity?: string | null;
+  chargerName?: string | null;
+  powerKw?: number | null;
+  /** Staff only. */
+  driverName?: string | null;
+  driverEmail?: string | null;
   transactionId: number | null;
   status: SessionStatus;
   idTag: string;
@@ -397,6 +409,10 @@ export interface ChargingSession {
   durationSeconds: number | null;
   stopReason: StopReason | null;
   failureReason: string | null;
+  /** Who asked for the stop, when it came from the platform. Staff roles mean a force-stop. */
+  stoppedByRole: Role | null;
+  /** The staff member's reason for a force-stop, shown to the driver. */
+  stopNote: string | null;
 
   /* ---------------------------- Module 9: pricing --------------------------- */
 
@@ -621,6 +637,8 @@ export type ComplaintStatus = 'open' | 'in_progress' | 'resolved' | 'closed';
  */
 export interface Complaint {
   id: string;
+  /** Human ticket number, e.g. CMP-4F2A9C — what people quote and search for. */
+  ticketRef: string;
   userId: string;
   companyId: string | null;
   chargingSessionId: string | null;
@@ -642,8 +660,31 @@ export interface Complaint {
   reopenCount: number;
   /** The closed complaint this one follows up. */
   followUpOf: string | null;
+  /** Staff member who owns the ticket. Always null for the driver. */
+  assignedTo: string | null;
+  assignedAt: string | null;
+  /** Internal work notes. Staff only — absent for the driver. */
+  notes?: ComplaintNote[];
   createdAt: string;
   updatedAt: string;
+
+  /* Context resolved by the server. */
+  companyName: string | null;
+  station: { id: string; name: string; address: string; city: string } | null;
+  charger: { id: string; name: string; ocppId?: string } | null;
+  connectorNumber: number | null;
+  /** Staff only. */
+  reporter?: { name: string; email: string; phone: string | null } | null;
+  /** Staff only. */
+  assigneeName?: string | null;
+}
+
+export interface ComplaintNote {
+  byUserId: string;
+  byRole: ComplaintActor;
+  byName?: string | null;
+  text: string;
+  at: string;
 }
 
 /** Who made a status change. `system` is the automatic close after the reopen window. */
@@ -882,6 +923,8 @@ export interface PublicMapStation extends StationAvailability {
   latitude: number;
   longitude: number;
   status: StationStatus;
+  /** The operator's brand name — who runs this site. */
+  operatorName: string | null;
   /** Straight-line km from the driver — only on a "near me" search. */
   distanceKm?: number;
 }

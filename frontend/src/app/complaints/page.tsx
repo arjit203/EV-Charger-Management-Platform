@@ -18,6 +18,7 @@ import { useAsyncData } from '@/hooks/useAsyncData';
 import { toMessage } from '@/lib/formatApiError';
 import { listComplaints } from '@/services/complaint.service';
 import type { ComplaintCategory, ComplaintPriority, ComplaintStatus } from '@/types/api';
+import { Pager, usePage } from '@/components/Pager';
 
 const STATUSES: ComplaintStatus[] = ['open', 'in_progress', 'resolved', 'closed'];
 const CATEGORIES = Object.keys(CATEGORY_LABELS) as ComplaintCategory[];
@@ -30,16 +31,22 @@ function ComplaintsContent() {
   const [status, setStatus] = useState<ComplaintStatus | ''>('');
   const [category, setCategory] = useState<ComplaintCategory | ''>('');
   const [priority, setPriority] = useState<ComplaintPriority | ''>('');
+  const [assigned, setAssigned] = useState<'me' | 'unassigned' | ''>('');
+
+  // Filters change -> back to page 1 (see usePage).
+  const [page, setPage] = usePage(JSON.stringify([status, category, priority, assigned]));
 
   const load = useCallback(
     () =>
       listComplaints({
+        page,
         limit: 50,
         ...(status ? { status } : {}),
         ...(category ? { category } : {}),
         ...(priority ? { priority } : {}),
+        ...(assigned ? { assigned } : {}),
       }),
-    [status, category, priority],
+    [status, category, priority, assigned, page],
   );
 
   const { state } = useAsyncData(load);
@@ -58,7 +65,7 @@ function ComplaintsContent() {
         {isDriver && (
           <Link
             href="/complaints/new"
-            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700"
+            className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent-contrast)] transition-colors hover:bg-[var(--accent-hover)]"
           >
             Report a problem
           </Link>
@@ -106,6 +113,19 @@ function ComplaintsContent() {
             ))}
           </select>
         )}
+
+        {!isDriver && (
+          <select
+            value={assigned}
+            onChange={(event) => setAssigned(event.target.value as 'me' | 'unassigned' | '')}
+            aria-label="Filter by owner"
+            className="rounded-lg border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none transition-colors focus:border-[var(--accent)] dark:border-neutral-700"
+          >
+            <option value="">Anyone&apos;s tickets</option>
+            <option value="me">Assigned to me</option>
+            <option value="unassigned">Unassigned</option>
+          </select>
+        )}
       </div>
 
       <div className="mt-6 space-y-3">
@@ -127,6 +147,16 @@ function ComplaintsContent() {
           state.data.items.map((complaint) => (
             <ComplaintRow key={complaint.id} complaint={complaint} showPriority={!isDriver} />
           ))}
+
+        {state.status === 'ok' && (
+          <Pager
+              page={state.data.page}
+              totalPages={state.data.totalPages}
+              total={state.data.total}
+              shown={state.data.items.length}
+              onPage={setPage}
+            />
+        )}
       </div>
     </main>
   );

@@ -1,5 +1,7 @@
 # Charging Station Map
 
+> **Revised later (real-world pass):** `/stations/public` now carries `operatorName`; city dropdown endpoints added — see `docs/learning/fixes-real-world-pass.md` and `API.md`.
+
 **Status:** Complete · 72 Module 14 API checks + 46 browser checks, **1221 across Modules 1–14**
 **Depends on:** Module 4 (coordinates), Module 5 (connectors), Module 6 (connector status)
 **Resolves:** two deferrals Module 4 recorded — one cashed in, one deliberately kept

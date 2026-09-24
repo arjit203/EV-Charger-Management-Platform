@@ -20,7 +20,6 @@
  */
 
 import { useCallback, useMemo, useState } from 'react';
-import Link from 'next/link';
 
 import { RequireAuth } from '@/components/RequireAuth';
 import { BarChart, HorizontalBarChart } from '@/components/charts/BarChart';
@@ -120,7 +119,7 @@ function Panel({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
+    <section className="min-w-0 rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
       <header className="mb-3">
         <h2 className="text-sm font-semibold">{title}</h2>
         {hint && <p className="text-xs text-neutral-500">{hint}</p>}
@@ -214,17 +213,11 @@ function AnalyticsDashboard() {
             Sessions, energy and revenue. All dates are UTC and both ends are inclusive.
           </p>
         </div>
-        <Link
-          href="/dashboard"
-          className="rounded-lg border border-neutral-300 px-3 py-2 text-sm transition-colors hover:bg-neutral-500/10 dark:border-neutral-700"
-        >
-          Back to dashboard
-        </Link>
       </header>
 
       {/* ------------------------------------------------------------ filters */}
       <div className="flex flex-wrap items-end gap-3 rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
-        <div className="flex gap-1.5">
+        <div className="flex flex-wrap gap-1.5">
           {PRESETS.map((preset) => (
             <button
               key={preset.label}
@@ -232,7 +225,7 @@ function AnalyticsDashboard() {
               onClick={() => applyPreset(preset.days)}
               className={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${
                 activePreset?.label === preset.label
-                  ? 'border-emerald-500 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+                  ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
                   : 'border-neutral-300 hover:bg-neutral-500/10 dark:border-neutral-700'
               }`}
             >
@@ -331,7 +324,7 @@ function Dashboard({ data, canSeeRevenue }: { data: Loaded; canSeeRevenue: boole
         />
         <Card
           label="Energy delivered"
-          value={`${overview.sessions.energyKwh.toLocaleString()} kWh`}
+          value={`${overview.sessions.energyKwh.toLocaleString('en-IN')} kWh`}
           sub={`in the last ${windowLabel}`}
         />
 
@@ -374,6 +367,7 @@ function Dashboard({ data, canSeeRevenue }: { data: Loaded; canSeeRevenue: boole
               value: point.sessions,
               display: `${point.sessions} session${point.sessions === 1 ? '' : 's'}`,
             }))}
+            unit="sessions"
           />
         </Panel>
 
