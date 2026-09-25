@@ -126,7 +126,7 @@ export function CompanyForm({ initial, submitLabel, onSubmit, onCancel }: Compan
         </div>
       </div>
 
-      <fieldset className="space-y-4 rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
+      <fieldset className="space-y-4 rounded-xl border border-neutral-200 bg-[var(--surface)] p-4 dark:border-neutral-800">
         <legend className="px-1 text-xs font-medium uppercase tracking-widest text-neutral-500">
           Address
         </legend>

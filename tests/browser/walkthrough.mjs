@@ -138,7 +138,7 @@ const staff = await signIn('cpo@livanto.local', 'Cpo@12345');
 
   /* ---- search ---- */
   section('SEARCH');
-  await page.fill('input[placeholder="Name, code or address"]', 'Ghaziabad');
+  await page.fill('main input[placeholder^="Name,"]', 'Ghaziabad');
   await page.click('button[type="submit"]');
   await page.waitForTimeout(2000);
 
@@ -147,7 +147,7 @@ const staff = await signIn('cpo@livanto.local', 'Cpo@12345');
   chk('and it is the right one', true, filtered[0].includes('Ghaziabad Vaishali Point'));
   chk('and the map is narrowed to one marker too', 1, await markerCount(page));
 
-  await page.fill('input[placeholder="Name, code or address"]', 'zzzz-nothing');
+  await page.fill('main input[placeholder^="Name,"]', 'zzzz-nothing');
   await page.click('button[type="submit"]');
   await page.waitForTimeout(2000);
   chk('a search with no matches shows a message, not a broken pane', true,
@@ -181,11 +181,15 @@ const driver = await signIn('mapdriver@test.local', 'MapDriver12345');
   chk('AND the rival company station - this is the cross-company read', true,
     rows.some((r) => r.includes('Sharma Dwarka Charge Park')));
 
-  chk('no company name appears anywhere on the page', false,
-    body.includes('Livanto') || body.includes('Sharma Energy'));
+  // The operator's public BRAND is shown to drivers on purpose ("Operated by Livanto Green"), as
+  // every charging app does. What must not leak is the company's internal record.
+  chk('no internal company data (legal name, contact email) on the page', false,
+    body.includes('Livanto Green Energy Pvt Ltd') || body.includes('ops@livanto.local') || body.includes('Sharma Energy Solutions'));
   chk('no station code appears anywhere on the page', false, body.includes('MAP-NOI-01'));
   chk('no "Open station" admin link for a driver', 0, await page.locator('a', { hasText: 'Open station' }).count());
-  chk('no status filter is offered to a driver', 0, await page.locator('select').count());
+  // Drivers get city and "near me" radius filters; the station-STATUS filter is staff-only.
+  chk('no status filter is offered to a driver', 0,
+    await page.locator('select:has(option[value="maintenance"]), select:has(option[value="inactive"])').count());
 
   /* The Faridabad site is ACTIVE - only its coordinates were removed - so a driver does see
    * it, listed with the same "location not set" badge staff get, and absent from the map.

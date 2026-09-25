@@ -19,12 +19,13 @@ import { listCompanies } from '@/services/company.service';
 import { COMPANY_TYPE_LABELS, type Company, type CompanyStatus, type CompanyType } from '@/types/api';
 import { buttonClasses } from '@/components/ui/Button';
 import { Pager, usePage } from '@/components/Pager';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 
 function CompanyRow({ company }: { company: Company }) {
   return (
     <Link
       href={`/companies/${company.id}`}
-      className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-neutral-200 p-4 transition-colors hover:bg-neutral-500/5 dark:border-neutral-800"
+      className="list-row"
     >
       <div className="min-w-0">
         <p className="truncate font-medium">{company.name}</p>
@@ -41,34 +42,32 @@ function CompanyRow({ company }: { company: Company }) {
 
 function CompanyListContent() {
   const [search, setSearch] = useState('');
+  const query = useDebouncedValue(search.trim());
   const [status, setStatus] = useState<CompanyStatus | ''>('');
   const [type, setType] = useState<CompanyType | ''>('');
 
   // Filters change -> back to page 1 (see usePage).
-  const [page, setPage] = usePage(JSON.stringify([search, status, type]));
+  const [page, setPage] = usePage(JSON.stringify([query, status, type]));
 
   const load = useCallback(
     () =>
       listCompanies({
         page,
-        search: search || undefined,
+        search: query || undefined,
         status: status || undefined,
         type: type || undefined,
         limit: 50,
       }),
-    [search, status, type, page],
+    [query, status, type, page],
   );
 
   const { state } = useAsyncData(load);
 
   return (
-    <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-6 py-16">
+    <main className="page">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-medium uppercase tracking-widest text-neutral-500">
-            EV-CMS
-          </p>
-          <h1 className="mt-1 text-2xl font-semibold">Companies</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Companies</h1>
           <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
             Charge point operators on the platform.
           </p>

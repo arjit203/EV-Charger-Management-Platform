@@ -50,12 +50,11 @@ function NotificationsContent() {
 
   // A notification arriving while this page is open belongs at the top of it.
   useSocketEvent<{ notification: AppNotification }>('notification:new', ({ notification }) => {
-    if (state.status !== 'ok') return;
-    setData({
-      ...state.data,
-      items: [notification, ...state.data.items],
-      total: state.data.total + 1,
-    });
+    setData((data) => ({
+      ...data,
+      items: [notification, ...data.items],
+      total: data.total + 1,
+    }));
   });
 
   async function open(notification: AppNotification) {
@@ -70,10 +69,10 @@ function NotificationsContent() {
   }
 
   return (
-    <main className="mx-auto max-w-2xl px-6 py-12">
+    <main className="page page-detail page-flow">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">Notifications</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Notifications</h1>
           <p className="mt-1 text-sm text-neutral-500">Everything the platform has told you.</p>
         </div>
         <button
@@ -115,13 +114,10 @@ function NotificationsContent() {
               key={notification.id}
               type="button"
               onClick={() => void open(notification)}
-              className={`block w-full rounded-xl border p-4 text-left transition-colors hover:bg-neutral-500/5 ${
-                notification.isRead
-                  ? 'border-neutral-200 dark:border-neutral-800'
-                  : 'border-[var(--accent)]/30 bg-[var(--accent-soft)]'
-              }`}
+              data-highlight={!notification.isRead}
+              className="list-row w-full !block"
             >
-              <p className="flex items-center gap-2 font-medium">
+              <p className={`flex items-center gap-2 ${notification.isRead ? 'font-normal text-neutral-300' : 'font-medium'}`}>
                 {!notification.isRead && (
                   <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--accent)]" aria-label="Unread" />
                 )}

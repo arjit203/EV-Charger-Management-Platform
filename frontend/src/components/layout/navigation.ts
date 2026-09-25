@@ -166,6 +166,20 @@ export function titleForPath(pathname: string, role?: Role): string {
   return match ? TITLES[match] : 'EV-CMS';
 }
 
+/**
+ * The navigation group a path belongs to — "Management" for `/users/42`.
+ *
+ * The topbar shows it as a breadcrumb in front of the page name. The page's own <h1> is the
+ * title; repeating the same words at the same weight in the topbar was the first thing every
+ * screen said twice.
+ */
+export function sectionForPath(pathname: string, role: Role): string | null {
+  for (const group of navigationFor(role)) {
+    if (group.items.some((item) => isActivePath(pathname, item.href))) return group.title;
+  }
+  return null;
+}
+
 /** Is this nav item the current page? Section entries stay highlighted on their detail routes. */
 export function isActivePath(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);

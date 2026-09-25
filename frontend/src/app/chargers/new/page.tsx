@@ -20,12 +20,9 @@ function CreateChargerContent() {
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-16">
+    <main className="page page-form">
       <header>
-        <p className="text-xs font-medium uppercase tracking-widest text-neutral-500">
-          EV-CMS
-        </p>
-        <h1 className="mt-1 text-2xl font-semibold">Add charger</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Add charger</h1>
         <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
           Register a charging machine at one of your stations. Add its connectors afterwards
           from the charger&apos;s page.

@@ -191,8 +191,8 @@ takes to clear.
 | `GET` | `/wallet/transactions` | driver | Own ledger |
 | `POST` | `/wallet/recharge/order` | driver | Create a Razorpay order. ₹10–₹10,000 |
 | `POST` | `/wallet/recharge/verify` | driver | **Server verifies the HMAC**, then credits |
-| `GET` | `/payments` | any | Payments in scope — own (driver) or company's (staff) |
-| `GET` | `/payments/:id` | owner, staff | One payment |
+| `GET` | `/payments` | driver, cpo_admin, super_admin | Payments in scope — own (driver) or company's (admin). Not operators: they see no revenue |
+| `GET` | `/payments/:id` | owner, cpo_admin, super_admin | One payment |
 | `POST` | `/payments/:id/refund` | super_admin, cpo_admin | Reverse a recharge |
 | `POST` | `/payments/webhook/razorpay` | signature | Provider callback. Verified over the **raw body** |
 

@@ -40,6 +40,7 @@ import { estimateAmountPaise, formatPaise, formatRate } from '@/lib/money';
 import { getSession, getSessionReadings, stopSession } from '@/services/session.service';
 import type { ChargingSession, MeterReading } from '@/types/api';
 import { formatTime } from '@/lib/datetime';
+import { LoadError } from '@/components/ui/LoadError';
 
 const OPEN_STATUSES = ['initiating', 'active', 'stopping'];
 
@@ -286,7 +287,7 @@ function SessionDetail({
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">{formatEnergy(session)}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">{formatEnergy(session)}</h1>
           {(session.stationName || session.companyName) && (
             <p className="mt-1 text-sm font-medium">
               {session.stationName ?? 'Charging station'}
@@ -544,10 +545,14 @@ function SessionDetailContent() {
   const sessionId = params.sessionId;
 
   const load = useCallback(
-    async () => ({
-      session: await getSession(sessionId),
-      readings: await getSessionReadings(sessionId),
-    }),
+    async () => {
+      // In parallel: this runs again on every meter tick while the page is open.
+      const [session, readings] = await Promise.all([
+        getSession(sessionId),
+        getSessionReadings(sessionId),
+      ]);
+      return { session, readings };
+    },
     [sessionId],
   );
 
@@ -571,7 +576,7 @@ function SessionDetailContent() {
     if (state.status !== 'ok' || session.id !== state.data.session.id) return;
     // MERGE, not replace: the pushed payload carries no display labels (station, operator…), and
     // replacing would blank the "Where" card the moment the charger reported anything.
-    setData({ ...state.data, session: { ...state.data.session, ...session } });
+    setData((data) => ({ ...data, session: { ...data.session, ...session } }));
   });
 
   useSocketEvent<{ sessionId: string }>('session:meterUpdate', (event) => {
@@ -583,20 +588,18 @@ function SessionDetailContent() {
   });
 
   return (
-    <main className="mx-auto max-w-3xl px-6 py-12">
+    <main className="page page-detail page-flow">
       {state.status === 'loading' && <p className="text-sm text-neutral-500">Loading…</p>}
 
       {state.status === 'error' && (
-        <p className="rounded-lg bg-red-500/10 p-4 text-sm text-red-700 dark:text-red-400">
-          {toMessage(state.error)}
-        </p>
+        <LoadError error={state.error} noun="session" backHref="/sessions" backLabel="Back to sessions" />
       )}
 
       {state.status === 'ok' && (
         <SessionDetail
           session={state.data.session}
           readings={state.data.readings}
-          onChanged={(session) => setData({ ...state.data, session: { ...state.data.session, ...session } })}
+          onChanged={(session) => setData((data) => ({ ...data, session: { ...data.session, ...session } }))}
         />
       )}
 

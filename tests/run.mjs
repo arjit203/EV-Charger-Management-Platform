@@ -61,6 +61,21 @@ if (!process.env.RZP_SECRET) {
   }
 }
 
+/*
+ * ONE URL MOVES ALL THREE CHANNELS. The suites read BASE (HTTP), WS_BASE (OCPP) and ORIGIN
+ * (Socket.IO) separately, each defaulting to port 5000. Pointing only BASE at another instance
+ * used to leave the OCPP and socket clients talking to a DIFFERENT server — 29 "event never
+ * arrived" failures that look exactly like broken realtime code. Derive the other two from BASE
+ * unless they were set explicitly.
+ */
+if (process.env.BASE) {
+  const base = new URL(process.env.BASE);
+  if (!process.env.ORIGIN) process.env.ORIGIN = base.origin;
+  if (!process.env.WS_BASE) {
+    process.env.WS_BASE = `${base.protocol === 'https:' ? 'wss:' : 'ws:'}//${base.host}/ocpp`;
+  }
+}
+
 /**
  * Suite order, and the count each one is expected to produce.
  *

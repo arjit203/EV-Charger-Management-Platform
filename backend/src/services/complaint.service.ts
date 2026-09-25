@@ -44,6 +44,7 @@ import type {
   ListComplaintsQuery,
   UpdateComplaintInput,
 } from '../validators/complaint.validator';
+import { singleFlight } from '../utils/singleFlight';
 
 const SCOPE = 'complaint';
 
@@ -837,8 +838,9 @@ let sweepTimer: NodeJS.Timeout | null = null;
 export function startComplaintSweeper(): void {
   if (sweepTimer) return;
 
+  const sweep = singleFlight(sweepResolvedComplaints);
   const run = () =>
-    void sweepResolvedComplaints().catch((error: unknown) =>
+    void sweep().catch((error: unknown) =>
       logger.error(SCOPE, 'Background auto-close of resolved complaints failed', error),
     );
 

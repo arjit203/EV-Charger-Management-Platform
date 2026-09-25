@@ -96,6 +96,20 @@ const HEALTH_LABELS: Record<Health, string> = {
   faulted: 'Faulted',
 };
 
+/**
+ * What each chip MEANS, in words. "Needs attention" is a roll-up, and a roll-up nobody can
+ * decode is just a scary red number — so the definition is on the chip and under the row.
+ */
+const HEALTH_HINTS: Record<Health, string> = {
+  all: 'Every charger you can see.',
+  attention:
+    'Chargers someone should look at: offline (no heartbeat from the charger) or faulted (reported an error, or taken out of service).',
+  charging: 'Chargers with a charging session in progress right now.',
+  online: 'Chargers currently connected and sending heartbeats.',
+  offline: 'Chargers that have stopped sending heartbeats — power, network or hardware at the site.',
+  faulted: 'Chargers that reported an error, or were marked inoperative by staff.',
+};
+
 const CHARGER_LIMIT = 100;
 
 // Stable empties, so the memoised views below do not recompute on every render while loading.
@@ -175,16 +189,14 @@ function MonitorContent() {
   }, [reconnectCount, reload]);
 
   useSocketEvent<ConnectivityEvent>('charger:connectivityChanged', (event) => {
-    if (state.status !== 'ok') return;
-
-    setData({
-      ...state.data,
-      chargers: state.data.chargers.map((charger) =>
+    setData((data) => ({
+      ...data,
+      chargers: data.chargers.map((charger) =>
         charger.id === event.chargerId
           ? { ...charger, isOnline: event.isOnline, lastHeartbeatAt: event.lastHeartbeatAt }
           : charger,
       ),
-    });
+    }));
     setLastEventAt(formatTime(new Date()));
   });
 
@@ -194,16 +206,14 @@ function MonitorContent() {
    * and this dashboard would keep showing it online and available until someone refreshed.
    */
   useSocketEvent<HardwareStatusEvent>('charger:hardwareStatusChanged', (event) => {
-    if (state.status !== 'ok') return;
-
-    setData({
-      ...state.data,
-      chargers: state.data.chargers.map((charger) =>
+    setData((data) => ({
+      ...data,
+      chargers: data.chargers.map((charger) =>
         charger.id === event.chargerId
           ? { ...charger, hardwareStatus: event.hardwareStatus, faultCode: event.faultCode }
           : charger,
       ),
-    });
+    }));
     setLastEventAt(formatTime(new Date()));
   });
 
@@ -213,31 +223,30 @@ function MonitorContent() {
   });
 
   useSocketEvent<{ session: ChargingSession }>('session:statusChanged', ({ session }) => {
-    if (state.status !== 'ok') return;
     // The socket delivers everything in the viewer's rooms. A session outside the chosen
     // company or station must not slip into a filtered board just because it started.
     if (companyId && session.companyId !== companyId) return;
     if (stationId && session.stationId !== stationId) return;
 
     const open = ['initiating', 'active', 'stopping'].includes(session.status);
-    const previous = state.data.sessions.find((s) => s.id === session.id);
-    const without = state.data.sessions.filter((s) => s.id !== session.id);
 
-    setData({
-      ...state.data,
-      // A finished session leaves the live list rather than lingering as a stale row. Merged,
-      // so labels from the REST load survive a push that does not carry them.
-      sessions: open ? [{ ...previous, ...session }, ...without] : without,
+    setData((data) => {
+      const previous = data.sessions.find((s) => s.id === session.id);
+      const without = data.sessions.filter((s) => s.id !== session.id);
+      return {
+        ...data,
+        // A finished session leaves the live list rather than lingering as a stale row. Merged,
+        // so labels from the REST load survive a push that does not carry them.
+        sessions: open ? [{ ...previous, ...session }, ...without] : without,
+      };
     });
     setLastEventAt(formatTime(new Date()));
   });
 
   useSocketEvent<MeterUpdateEvent>('session:meterUpdate', (event) => {
-    if (state.status !== 'ok') return;
-
-    setData({
-      ...state.data,
-      sessions: state.data.sessions.map((session) =>
+    setData((data) => ({
+      ...data,
+      sessions: data.sessions.map((session) =>
         session.id === event.sessionId
           ? {
               ...session,
@@ -246,7 +255,7 @@ function MonitorContent() {
             }
           : session,
       ),
-    });
+    }));
     setLastEventAt(formatTime(new Date()));
   });
 
@@ -285,7 +294,7 @@ function MonitorContent() {
   const chargerTotal = state.status === 'ok' ? state.data.chargerTotal : 0;
 
   return (
-    <main className="mx-auto max-w-5xl px-6 py-12">
+    <main className="page page-flow">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Live operations</h1>
@@ -346,6 +355,7 @@ function MonitorContent() {
             type="button"
             onClick={() => setHealth(key)}
             aria-pressed={health === key}
+            title={HEALTH_HINTS[key]}
             className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
               health === key
                 ? 'border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]'
@@ -357,6 +367,7 @@ function MonitorContent() {
           </button>
         ))}
       </div>
+      <p className="mt-2 text-xs text-neutral-500">{HEALTH_HINTS[health]}</p>
 
       {state.status === 'loading' && <p className="mt-8 text-sm text-neutral-500">Loading…</p>}
 
@@ -392,7 +403,7 @@ function MonitorContent() {
                 <Link
                   key={charger.id}
                   href={`/chargers/${charger.id}`}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-neutral-200 p-4 transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-soft)] dark:border-neutral-800"
+                  className="list-row"
                 >
                   <div className="min-w-0">
                     <p className="truncate font-medium">{charger.name}</p>
@@ -467,7 +478,7 @@ function MonitorContent() {
                 <Link
                   key={session.id}
                   href={`/sessions/${session.id}`}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-neutral-200 p-4 transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-soft)] dark:border-neutral-800"
+                  className="list-row"
                 >
                   <div className="min-w-0">
                     <p className="truncate font-medium">

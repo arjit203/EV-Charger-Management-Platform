@@ -23,12 +23,9 @@ function MyCompanyContent() {
   const { state } = useAsyncData(load);
 
   return (
-    <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-16">
+    <main className="page page-detail">
       <header>
-        <p className="text-xs font-medium uppercase tracking-widest text-neutral-500">
-          EV-CMS
-        </p>
-        <h1 className="mt-1 text-2xl font-semibold">My company</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">My company</h1>
         <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
           The company your account belongs to. Your stations, chargers and sessions will all
           be scoped to it.
@@ -48,7 +45,7 @@ function MyCompanyContent() {
           ) : null}
         </div>
       ) : (
-        <section className="rounded-xl border border-neutral-200 p-5 dark:border-neutral-800">
+        <section className="rounded-xl border border-neutral-200 bg-[var(--surface)] p-5 dark:border-neutral-800">
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge tone={state.data.status === 'active' ? 'good' : 'bad'} label={state.data.status} />
             <StatusBadge tone="neutral" label={state.data.type} />

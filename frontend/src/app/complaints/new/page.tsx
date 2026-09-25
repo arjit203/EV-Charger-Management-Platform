@@ -86,8 +86,8 @@ function NewComplaintContent() {
   }
 
   return (
-    <main className="mx-auto max-w-lg px-6 py-12">
-      <h1 className="text-2xl font-semibold">
+    <main className="page page-form page-flow">
+      <h1 className="text-2xl font-semibold tracking-tight">
         {followUpOf ? 'Report the problem again' : 'Report a problem'}
       </h1>
       <p className="mt-1 text-sm text-neutral-500">

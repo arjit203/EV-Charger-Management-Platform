@@ -105,19 +105,25 @@ async function main(): Promise<void> {
     }
 
     /* The underfunded driver is topped up to a token amount only. */
-    const targetBalance = (demo as { broke?: boolean }).broke ? 2_000 : 100_000;
+    /*
+     * Enough to pay for the ~15 charges each driver is billed below (≈ ₹1,500), with room to
+     * charge again in a demo. ₹1,000 used to run out part-way, leaving every demo driver IN
+     * ARREARS — refused at the charger — once the ledger stopped pretending unpaid was paid.
+     * Kabir stays underfunded on purpose: he is the arrears example.
+     */
+    const targetBalance = (demo as { broke?: boolean }).broke ? 2_000 : 500_000;
 
     if (wallet.balancePaise < targetBalance) {
       const topUp = targetBalance - wallet.balancePaise;
-      const balanceBeforePaise = wallet.balancePaise;
-      wallet.balancePaise += topUp;
-      await wallet.save();
-
-      await WalletTransaction.create({
-        walletId: wallet._id, userId: user._id, type: 'recharge', direction: 'credit',
-        amountPaise: topUp, balanceBeforePaise, balanceAfterPaise: wallet.balancePaise,
-        description: 'Demo wallet top-up',
-      });
+      // Atomic, for the same reason as the session debits below: the server may be settling.
+      const credited = await Wallet.findOneAndUpdate(
+        { _id: wallet._id },
+        { $inc: { balancePaise: topUp } },
+        { new: true },
+      );
+      if (!credited) throw new Error(`Wallet for ${demo.email} disappeared mid-seed`);
+      wallet = credited;
+      const balanceBeforePaise = wallet.balancePaise - topUp;
 
       /*
        * A UNIQUE provider id per top-up. Module 10 puts a unique index on
@@ -126,12 +132,21 @@ async function main(): Promise<void> {
        * collided the second time this script ran, which is the index doing its job.
        */
       const stamp = Date.now().toString(36);
-      await PaymentTransaction.create({
+      const recharge = await PaymentTransaction.create({
         userId: user._id, walletId: wallet._id, purpose: 'wallet_recharge', provider: 'razorpay',
         chargingSessionId: null, companyId: null, amountPaise: topUp, status: 'paid',
         providerOrderId: `order_demo_${String(user._id).slice(-8)}_${stamp}`,
         providerPaymentId: `pay_demo_${String(user._id).slice(-8)}_${stamp}`,
         attempts: 1, failureReason: null, paidAt: new Date(),
+      });
+
+      // Linked to its payment, exactly like a real recharge — an unlinked credit is money
+      // with no provenance, which the integrity checks rightly flag.
+      await WalletTransaction.create({
+        walletId: wallet._id, userId: user._id, type: 'recharge', direction: 'credit',
+        amountPaise: topUp, balanceBeforePaise, balanceAfterPaise: wallet.balancePaise,
+        paymentTransactionId: recharge._id,
+        description: 'Demo wallet top-up',
       });
     }
 
@@ -177,8 +192,28 @@ async function main(): Promise<void> {
           const durationMs = Math.round((energyWh / charger.powerKw) * 3_600);
           const endedAt = new Date(startedAt.getTime() + durationMs);
 
-          /* The newest two per charger stay UNPAID, so "awaiting payment" is real. */
-          const paid = n > 1;
+          /*
+           * The newest two per charger stay UNPAID, so "awaiting payment" is real — and so does
+           * any charge the wallet cannot cover. This used to clamp the balance at zero and mark
+           * the session paid anyway, which recorded a debit the wallet never had: a "paid"
+           * session the ledger could not account for. Real settlement never does that; the
+           * shortfall stays unpaid until a top-up clears it, and the demo now tells the same story.
+           */
+          /*
+           * The money moves FIRST, atomically — the same conditional `$inc` the real settlement
+           * uses. The dev server's settlement sweeper pays unpaid sessions the moment a wallet is
+           * funded, so a read-modify-write here raced it (both read one balance; the later save
+           * erased the earlier debit), and a session created "unpaid" first could be settled by
+           * the sweeper AND by this script. Debit, then create the session already paid.
+           */
+          const wallet = n > 1
+            ? await Wallet.findOneAndUpdate(
+                { userId: driver.user._id, balancePaise: { $gte: amountPaise } },
+                { $inc: { balancePaise: -amountPaise } },
+                { new: true },
+              )
+            : null;
+          const paid = wallet !== null;
 
           const session = await ChargingSession.create({
             userId: driver.user._id,
@@ -220,27 +255,24 @@ async function main(): Promise<void> {
             readingCount += 1;
           }
 
-          if (paid) {
-            const wallet = await Wallet.findOne({ userId: driver.user._id });
-            if (wallet) {
-              const balanceBeforePaise = wallet.balancePaise;
-              wallet.balancePaise = Math.max(0, wallet.balancePaise - amountPaise);
-              await wallet.save();
+          if (wallet) {
+            const balanceBeforePaise = wallet.balancePaise + amountPaise;
 
-              await WalletTransaction.create({
-                walletId: wallet._id, userId: driver.user._id, type: 'session_debit',
-                direction: 'debit', amountPaise, balanceBeforePaise,
-                balanceAfterPaise: wallet.balancePaise,
-                description: `Charging at ${station.name}`,
-              });
+            const payment = await PaymentTransaction.create({
+              userId: driver.user._id, walletId: wallet._id, purpose: 'session_debit',
+              provider: 'internal', chargingSessionId: session._id, companyId: company._id,
+              amountPaise, status: 'paid', providerOrderId: null, providerPaymentId: null,
+              attempts: 1, failureReason: null, paidAt: endedAt,
+            });
 
-              await PaymentTransaction.create({
-                userId: driver.user._id, walletId: wallet._id, purpose: 'session_debit',
-                provider: 'internal', chargingSessionId: session._id, companyId: company._id,
-                amountPaise, status: 'paid', providerOrderId: null, providerPaymentId: null,
-                attempts: 1, failureReason: null, paidAt: endedAt,
-              });
-            }
+            // Same links the real settlement writes (payment.service.ts): session AND payment.
+            await WalletTransaction.create({
+              walletId: wallet._id, userId: driver.user._id, type: 'session_debit',
+              direction: 'debit', amountPaise, balanceBeforePaise,
+              balanceAfterPaise: wallet.balancePaise,
+              paymentTransactionId: payment._id, chargingSessionId: session._id,
+              description: `Charging at ${station.name}`,
+            });
           } else {
             await PaymentTransaction.create({
               userId: driver.user._id,

@@ -47,6 +47,7 @@ import { applyMovement, getOrCreateWallet } from './wallet.service';
 import * as notify from './notification.service';
 import type { Paginated } from '../types/pagination';
 import type { AuthUser } from '../types/express';
+import { singleFlight } from '../utils/singleFlight';
 
 const SCOPE = 'payments';
 const DUPLICATE_KEY = 11000;
@@ -648,8 +649,9 @@ let sweepTimer: NodeJS.Timeout | null = null;
 export function startSettlementSweeper(): void {
   if (sweepTimer) return;
 
+  const sweep = singleFlight(sweepUnsettledSessions);
   sweepTimer = setInterval(() => {
-    void sweepUnsettledSessions().catch((error: unknown) =>
+    void sweep().catch((error: unknown) =>
       logger.error(SCOPE, 'Background retry of unpaid charging sessions failed', error),
     );
   }, SETTLEMENT_SWEEP_INTERVAL_MS);

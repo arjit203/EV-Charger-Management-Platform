@@ -19,13 +19,12 @@ const testCompanyName = /^(M[0-9]{1,2} |Test |E2E|Check |Probe |Alpha |Beta |Sco
 const testStationCode = /^(S[0-9]|M1[3-9]|MAP-|RC|SEC|INT|GHO|DUP|CRX|TRSP|FAIL-|P8-|E2E|E8-|MC-|PRB-|ST-|SC-|TEST)/;
 const testChargerCode = /^(C[0-9]|M1[3-9]|MAP-|RCC|SECC|INTC|GHOC|CRX|TRSPC|FAILC|E2EC-|E8C-|PRBC-|CH-|TEST)/;
 
-// Sessions and readings are Module 7 only and contain nothing but check-script data.
-const sessions = await db.collection('chargingsessions').countDocuments().catch(() => 0);
-const readings = await db.collection('meterreadings').countDocuments().catch(() => 0);
-if (sessions) await db.collection('chargingsessions').deleteMany({});
-if (readings) await db.collection('meterreadings').deleteMany({});
-console.log(`chargingsessions: removed ${sessions}`);
-console.log(`meterreadings:    removed ${readings}`);
+/*
+ * Sessions and readings are NOT wiped wholesale any more. That used to be safe because only
+ * check scripts created sessions - but the demo drivers and real sign-ups charge too, and a
+ * cleanup that erased their history made the dashboard and analytics go blank. Test sessions
+ * are now removed by the orphan sweep below: they belong to a test user or a deleted charger.
+ */
 
 const users = await db.collection('users').find({ email: testUserEmail }).toArray();
 const userIds = users.map((u) => u._id);
@@ -88,11 +87,23 @@ console.log(`companies:        removed ${removedCompanies.deletedCount}`);
 const liveUsers = new Set(
   (await db.collection('users').find({}, { projection: { _id: 1 } }).toArray()).map((u) => String(u._id)),
 );
+const liveChargersForOrphans = new Set(
+  (await db.collection('chargers').find({}, { projection: { _id: 1 } }).toArray()).map((c) => String(c._id)),
+);
+// Sessions first - the readings, payments and complaints swept below hang off them.
+{
+  const rows = await db.collection('chargingsessions').find({}, { projection: { userId: 1, chargerId: 1 } }).toArray();
+  const dead = rows
+    .filter((r) => !liveUsers.has(String(r.userId)) || !liveChargersForOrphans.has(String(r.chargerId)))
+    .map((r) => r._id);
+  if (dead.length > 0) await db.collection('chargingsessions').deleteMany({ _id: { $in: dead } });
+  console.log(`chargingsessions: removed ${dead.length} (test users / deleted chargers)`);
+}
 const liveSessions = new Set(
   (await db.collection('chargingsessions').find({}, { projection: { _id: 1 } }).toArray()).map((s) => String(s._id)),
 );
-const liveChargersForOrphans = new Set(
-  (await db.collection('chargers').find({}, { projection: { _id: 1 } }).toArray()).map((c) => String(c._id)),
+const liveCompanies = new Set(
+  (await db.collection('companies').find({}, { projection: { _id: 1 } }).toArray()).map((c) => String(c._id)),
 );
 
 console.log('\norphans swept:');
@@ -111,11 +122,33 @@ for (const [collection, field, live] of [
   ['paymenttransactions', 'chargingSessionId', liveSessions],
   ['complaints', 'chargingSessionId', liveSessions],
   ['connectors', 'chargerId', liveChargersForOrphans],
+  ['complaints', 'companyId', liveCompanies],
+  ['complaints', 'chargerId', liveChargersForOrphans],
 ]) {
   const rows = await db.collection(collection).find({}, { projection: { [field]: 1 } }).toArray().catch(() => []);
   const orphans = rows.filter((r) => r[field] && !live.has(String(r[field]))).map((r) => r._id);
   if (orphans.length > 0) await db.collection(collection).deleteMany({ _id: { $in: orphans } });
   console.log(`  ${collection.padEnd(20)} ${orphans.length}`);
+}
+
+/*
+ * Notifications whose SUBJECT is gone - a "New complaint" for a deleted complaint, a fault
+ * alert for a deleted charger. Their owner still exists, so the userId sweep keeps them, and
+ * clicking one opened a dead record. Matched by referenceType -> the collection it points at.
+ */
+{
+  const targets = { complaint: 'complaints', charger: 'chargers', charging_session: 'chargingsessions' };
+  let removed = 0;
+  for (const [type, collection] of Object.entries(targets)) {
+    const live = new Set(
+      (await db.collection(collection).find({}, { projection: { _id: 1 } }).toArray()).map((d) => String(d._id)),
+    );
+    const rows = await db.collection('notifications').find({ referenceType: type }, { projection: { referenceId: 1 } }).toArray();
+    const dead = rows.filter((r) => !live.has(String(r.referenceId))).map((r) => r._id);
+    if (dead.length > 0) await db.collection('notifications').deleteMany({ _id: { $in: dead } });
+    removed += dead.length;
+  }
+  console.log(`  ${'notifications (ref)'.padEnd(20)} ${removed}`);
 }
 
 console.log('\nremaining:');

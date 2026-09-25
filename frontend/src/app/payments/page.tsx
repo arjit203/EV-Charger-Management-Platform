@@ -145,9 +145,9 @@ function PaymentsPage() {
   const { state, reload } = useAsyncData(load);
 
   return (
-    <main className="mx-auto w-full max-w-5xl space-y-4 p-4 sm:p-6">
+    <main className="page page-flow space-y-4">
       <div>
-        <h1 className="text-2xl font-semibold">Payments</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Payments</h1>
         <p className="text-sm text-neutral-500">
           Every movement recorded against your company, newest first. Deposits and sales are
           labelled separately — they are not the same thing.

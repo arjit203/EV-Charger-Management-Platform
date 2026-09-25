@@ -34,6 +34,7 @@ import { describeChargerId, describeSession, sessionRef } from '../utils/logLabe
 import * as realtime from '../realtime/publisher';
 import * as notify from './notification.service';
 import { assessArrears, settleSession } from './payment.service';
+import { singleFlight } from '../utils/singleFlight';
 
 /**
  * Connector states that only make sense while a charger is CONNECTED.
@@ -146,6 +147,7 @@ export interface StartTransactionOutcome {
 export async function onStartTransaction(
   input: StartTransactionInput,
   allocateTransactionId: () => number,
+  reseedTransactionIds?: (highestIssued: number) => void,
 ): Promise<StartTransactionOutcome> {
   const session = await ChargingSession.findOne({ idTag: input.idTag });
 
@@ -189,7 +191,33 @@ export async function onStartTransaction(
   session.startedAt = parseChargerTime(input.timestamp);
   session.startMeterWh = input.meterStartWh;
   session.lastMeterWh = input.meterStartWh;
-  await session.save();
+
+  /*
+   * A TAKEN TRANSACTION ID IS RECOVERABLE, NOT FATAL. The allocator is an in-memory counter seeded
+   * from the database once at boot. If another process has issued ids since — a restart where the
+   * old and new process overlap, or a second backend on the same database — the next id already
+   * exists, the unique index refuses the save, and every start on this process failed as an
+   * opaque "Internal gateway error" until it was restarted. Re-read the true high-water mark,
+   * move the counter past it, and try once more.
+   */
+  try {
+    await session.save();
+  } catch (error) {
+    const isTakenId =
+      (error as { code?: number }).code === 11000 &&
+      Boolean((error as { keyPattern?: Record<string, unknown> }).keyPattern?.transactionId);
+    if (!isTakenId || !reseedTransactionIds) throw error;
+
+    const highest = await highestTransactionId();
+    reseedTransactionIds(highest);
+    logger.warn(
+      SCOPE,
+      `OCPP transaction ${String(session.transactionId)} was already taken by another process — ` +
+        `moved the counter past ${highest} and retried`,
+    );
+    session.transactionId = allocateTransactionId();
+    await session.save();
+  }
 
   logger.info(
     SCOPE,
@@ -558,8 +586,9 @@ let sweepTimer: NodeJS.Timeout | null = null;
 export function startSessionSweeper(): void {
   if (sweepTimer) return;
 
+  const sweep = singleFlight(sweepUnconfirmedSessions);
   sweepTimer = setInterval(() => {
-    void sweepUnconfirmedSessions().catch((error: unknown) =>
+    void sweep().catch((error: unknown) =>
       logger.error(SCOPE, 'Background check for sessions the charger never confirmed failed', error),
     );
   }, SESSION_SWEEP_INTERVAL_MS);

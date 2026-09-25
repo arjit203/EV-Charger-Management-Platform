@@ -22,6 +22,7 @@ import { toMessage } from '@/lib/formatApiError';
 import { getTariff, setTariffStatus, updateTariff } from '@/services/tariff.service';
 import type { Tariff } from '@/types/api';
 import { formatDateTime } from '@/lib/datetime';
+import { LoadError } from '@/components/ui/LoadError';
 
 function TariffDetail({
   tariff,
@@ -78,7 +79,7 @@ function TariffDetail({
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">{tariff.name}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">{tariff.name}</h1>
           <p className="mt-1 text-3xl font-semibold tabular-nums">
             {formatRate(tariff.pricePerKwhPaise)}
           </p>
@@ -144,13 +145,11 @@ function TariffDetailContent() {
   const { state, setData } = useAsyncData(load);
 
   return (
-    <main className="mx-auto max-w-2xl px-6 py-12">
+    <main className="page page-detail page-flow">
       {state.status === 'loading' && <p className="text-sm text-neutral-500">Loading…</p>}
 
       {state.status === 'error' && (
-        <p className="rounded-lg bg-red-500/10 p-4 text-sm text-red-700 dark:text-red-400">
-          {toMessage(state.error)}
-        </p>
+        <LoadError error={state.error} noun="tariff" backHref="/tariffs" backLabel="Back to tariffs" />
       )}
 
       {state.status === 'ok' && <TariffDetail tariff={state.data} onChanged={setData} />}

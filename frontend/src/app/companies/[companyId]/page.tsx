@@ -9,7 +9,7 @@
  */
 
 import { useCallback, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import Link from 'next/link';
 
 import { CompanyForm } from '@/components/CompanyForm';
@@ -29,6 +29,7 @@ import { createStaffUser } from '@/services/user.service';
 import { COMPANY_TYPE_LABELS, ROLE_LABELS, type Company } from '@/types/api';
 import { buttonClasses } from '@/components/ui/Button';
 import { formatDateTime } from '@/lib/datetime';
+import { LoadError } from '@/components/ui/LoadError';
 
 /* ------------------------------------------------------------------ staff -- */
 
@@ -148,9 +149,9 @@ function CompanyDetails({ company, canManage, onChanged }: {
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <p className="text-xs font-medium uppercase tracking-widest text-neutral-500">
-            EV-CMS &middot; Company
+            Company
           </p>
-          <h1 className="mt-1 truncate text-2xl font-semibold">{company.name}</h1>
+          <h1 className="mt-1 truncate text-2xl font-semibold tracking-tight">{company.name}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <StatusBadge tone={company.status === 'active' ? 'good' : 'bad'} label={company.status} />
             <StatusBadge tone="neutral" label={company.type} />
@@ -191,7 +192,7 @@ function CompanyDetails({ company, canManage, onChanged }: {
         </p>
       ) : null}
 
-      <section className="rounded-xl border border-neutral-200 p-5 dark:border-neutral-800">
+      <section className="rounded-xl border border-neutral-200 bg-[var(--surface)] p-5 dark:border-neutral-800">
         {isEditing ? (
           <CompanyForm
             initial={company}
@@ -223,7 +224,7 @@ function CompanyDetails({ company, canManage, onChanged }: {
       </section>
 
       {canManage ? (
-        <section className="rounded-xl border border-neutral-200 p-5 dark:border-neutral-800">
+        <section className="rounded-xl border border-neutral-200 bg-[var(--surface)] p-5 dark:border-neutral-800">
           <button
             type="button" onClick={() => setShowStaff((v) => !v)}
             className="flex w-full items-center justify-between text-sm font-semibold"
@@ -244,7 +245,6 @@ function CompanyDetails({ company, canManage, onChanged }: {
 
 function CompanyDetailContent() {
   const params = useParams<{ companyId: string }>();
-  const router = useRouter();
   const { user } = useAuth();
   const companyId = params.companyId;
 
@@ -254,24 +254,11 @@ function CompanyDetailContent() {
   const canManage = user?.role === 'super_admin';
 
   return (
-    <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-16">
+    <main className="page page-detail">
       {state.status === 'loading' ? (
         <p className="text-sm text-neutral-500">Loading company&hellip;</p>
       ) : state.status === 'error' ? (
-        <div className="space-y-3">
-          <p className="text-sm font-medium">{state.error.message}</p>
-          <p className="text-xs text-neutral-500">
-            {state.error.status === 403 || state.error.status === 404
-              ? 'This record does not exist, or it belongs to another company.'
-              : 'Please try again in a moment.'}
-          </p>
-          <button
-            type="button" onClick={() => router.back()}
-            className={buttonClasses('secondary')}
-          >
-            Go back
-          </button>
-        </div>
+        <LoadError error={state.error} noun="company" backHref="/companies" backLabel="Back to companies" />
       ) : (
         <CompanyDetails company={state.data} canManage={canManage} onChanged={setData} />
       )}

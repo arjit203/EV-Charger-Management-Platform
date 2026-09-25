@@ -33,6 +33,7 @@ import { getActiveSession, listStationConnectors } from '@/services/session.serv
 import { AlreadyCharging } from '@/components/SessionSummary';
 import type { AnyMapStation, StationStatus } from '@/types/api';
 import { isStaffMapStation } from '@/types/api';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 
 /**
  * Leaflet reads `window` at MODULE LOAD time, so the map is loaded with `ssr: false`.
@@ -186,6 +187,7 @@ function StationMapPage() {
   const isDriver = user?.role === 'driver';
 
   const [search, setSearch] = useState('');
+  const query = useDebouncedValue(search.trim());
   const [city, setCity] = useState('');
   const [status, setStatus] = useState<StationStatus | ''>('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -230,7 +232,7 @@ function StationMapPage() {
   const load = useCallback(async (): Promise<AnyMapStation[]> => {
     if (isDriver) {
       const result = await getPublicStations({
-        search: search || undefined,
+        search: query || undefined,
         city: city || undefined,
         ...(userLocation ? { lat: userLocation.lat, lng: userLocation.lng, radiusKm } : {}),
       });
@@ -238,12 +240,12 @@ function StationMapPage() {
     }
 
     const result = await getMapStations({
-      search: search || undefined,
+      search: query || undefined,
       city: city || undefined,
       status: status || undefined,
     });
     return result.stations;
-  }, [isDriver, search, city, status, userLocation, radiusKm]);
+  }, [isDriver, query, city, status, userLocation, radiusKm]);
 
   const { state, reload } = useAsyncData(load);
 
@@ -269,10 +271,10 @@ function StationMapPage() {
   }, []);
 
   return (
-    <main className="mx-auto flex w-full max-w-7xl flex-col gap-4 p-4 sm:p-6">
+    <main className="page">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">
+          <h1 className="text-2xl font-semibold tracking-tight">
             {isDriver ? 'Find a charging station' : 'Station map'}
           </h1>
           <p className="text-sm text-neutral-500">
@@ -289,7 +291,7 @@ function StationMapPage() {
           event.preventDefault();
           void reload();
         }}
-        className="flex flex-wrap items-end gap-3 rounded-xl border border-neutral-200 p-3 dark:border-neutral-800"
+        className="flex flex-wrap items-end gap-3 rounded-xl border border-neutral-200 bg-[var(--surface)] p-3 dark:border-neutral-800"
       >
         <label className="flex min-w-[12rem] flex-1 flex-col gap-1 text-xs text-neutral-500">
           Search
@@ -425,7 +427,7 @@ function StationMapPage() {
             * columns with the list scrolling independently.
             */}
           <div className="grid gap-4 lg:h-[34rem] lg:grid-cols-[22rem_1fr]">
-            <section className="order-2 overflow-hidden rounded-xl border border-neutral-200 lg:order-1 lg:flex lg:flex-col dark:border-neutral-800">
+            <section className="order-2 overflow-hidden rounded-xl border border-neutral-200 bg-[var(--surface)] lg:order-1 lg:flex lg:flex-col dark:border-neutral-800">
               <button
                 type="button"
                 onClick={() => setListOpenOnMobile((open) => !open)}
@@ -461,7 +463,7 @@ function StationMapPage() {
               </div>
             </section>
 
-            <section className="order-1 h-[20rem] overflow-hidden rounded-xl border border-neutral-200 lg:order-2 lg:h-auto dark:border-neutral-800">
+            <section className="order-1 h-[20rem] overflow-hidden rounded-xl border border-neutral-200 bg-[var(--surface)] lg:order-2 lg:h-auto dark:border-neutral-800">
               {placeableCount === 0 && state.status === 'ok' && !userLocation ? (
                 <div className="flex h-full items-center justify-center bg-neutral-100 p-6 dark:bg-neutral-900">
                   <p className="max-w-xs text-center text-sm text-neutral-500">
@@ -483,7 +485,7 @@ function StationMapPage() {
 
           {/* --------------------------------------------------------- detail */}
           {selected && (
-            <section className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
+            <section className="rounded-xl border border-neutral-200 bg-[var(--surface)] p-4 dark:border-neutral-800">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <h2 className="text-lg font-semibold">{selected.name}</h2>

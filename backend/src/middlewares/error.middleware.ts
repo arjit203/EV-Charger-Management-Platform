@@ -66,6 +66,28 @@ function translateKnownErrors(error: unknown): ApiError | null {
     return ApiError.badRequest('Request body is not valid JSON.');
   }
 
+  /*
+   * THE DATABASE IS UNREACHABLE — a 503, not a 500.
+   *
+   * Tested by stopping MongoDB under a running server: every request answered "500 Something
+   * went wrong", which tells a client (and a load balancer, and an operator reading a status
+   * page) that the request itself was broken. It was not; the platform was briefly down, and
+   * trying again shortly is exactly right. Mongoose surfaces this either as a driver
+   * connectivity error or, while it queues commands for a lost connection, as a buffering timeout.
+   */
+  const name = candidate.name ?? '';
+  const message = error instanceof Error ? error.message : '';
+  if (
+    /^Mongo(ose)?(ServerSelection|Network|NetworkTimeout|NotConnected|TopologyClosed)Error$/.test(name) ||
+    (name === 'MongooseError' && /buffering timed out/i.test(message))
+  ) {
+    return new ApiError(
+      503,
+      'The service is temporarily unavailable. Please try again in a moment.',
+      'SERVICE_UNAVAILABLE',
+    );
+  }
+
   /* Body larger than the configured limit — also the caller's problem, not ours. */
   if (parseFailure.type === 'entity.too.large') {
     return new ApiError(413, 'Request body is too large.', 'PAYLOAD_TOO_LARGE');
@@ -100,8 +122,12 @@ export function errorHandler(
   }
 
   // Never leak internal failure details to clients in production.
+  // 503's message is ours and says only "try again" — safe, and useful, to pass through.
   const clientMessage =
-    apiError.statusCode >= 500 && env.isProduction ? 'Something went wrong' : apiError.message;
+    apiError.statusCode >= 500 && apiError.statusCode !== 503 && env.isProduction
+      ? 'Something went wrong'
+      : apiError.message;
+  if (apiError.statusCode === 503) res.setHeader('Retry-After', '5');
 
   const body: ErrorBody = {
     success: false,

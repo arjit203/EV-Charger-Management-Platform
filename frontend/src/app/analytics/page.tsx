@@ -95,7 +95,7 @@ function Card({
   tone?: 'default' | 'warn';
 }) {
   return (
-    <div className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
+    <div className="rounded-xl border border-neutral-200 bg-[var(--surface)] p-4 dark:border-neutral-800">
       <p className="text-xs uppercase tracking-wide text-neutral-500">{label}</p>
       <p
         className={`mt-1 text-2xl font-semibold tabular-nums ${
@@ -119,7 +119,7 @@ function Panel({
   children: React.ReactNode;
 }) {
   return (
-    <section className="min-w-0 rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
+    <section className="min-w-0 rounded-xl border border-neutral-200 bg-[var(--surface)] p-4 dark:border-neutral-800">
       <header className="mb-3">
         <h2 className="text-sm font-semibold">{title}</h2>
         {hint && <p className="text-xs text-neutral-500">{hint}</p>}
@@ -205,10 +205,10 @@ function AnalyticsDashboard() {
   }
 
   return (
-    <main className="mx-auto w-full max-w-6xl space-y-6 p-6">
+    <main className="page page-flow space-y-6">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold">Analytics</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Analytics</h1>
           <p className="text-sm text-neutral-500">
             Sessions, energy and revenue. All dates are UTC and both ends are inclusive.
           </p>
@@ -216,7 +216,7 @@ function AnalyticsDashboard() {
       </header>
 
       {/* ------------------------------------------------------------ filters */}
-      <div className="flex flex-wrap items-end gap-3 rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
+      <div className="flex flex-wrap items-end gap-3 rounded-xl border border-neutral-200 bg-[var(--surface)] p-4 dark:border-neutral-800">
         <div className="flex flex-wrap gap-1.5">
           {PRESETS.map((preset) => (
             <button

@@ -56,15 +56,12 @@ function ProfileContent() {
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-xl flex-1 flex-col gap-6 px-6 py-16">
+    <main className="page page-form">
       <header>
-        <p className="text-xs font-medium uppercase tracking-widest text-neutral-500">
-          EV-CMS
-        </p>
-        <h1 className="mt-1 text-2xl font-semibold">My profile</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">My profile</h1>
       </header>
 
-      <section className="rounded-xl border border-neutral-200 p-5 dark:border-neutral-800">
+      <section className="rounded-xl border border-neutral-200 bg-[var(--surface)] p-5 dark:border-neutral-800">
         <div className="flex flex-wrap items-center gap-2">
           <StatusBadge tone="neutral" label={ROLE_LABELS[user.role]} />
           <StatusBadge tone={user.status === 'active' ? 'good' : 'bad'} label={user.status} />

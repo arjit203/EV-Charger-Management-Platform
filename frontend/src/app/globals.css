@@ -22,18 +22,22 @@
    * follow the OS preference, so an operator on a light-mode laptop got a different, less-tested
    * product than the one in every screenshot and review.
    */
-  --background: #0a0a0a;
+  --background: #09090b;
   --foreground: #ededed;
 
-  /* Surfaces */
-  --surface: #0f0f0f;
-  --surface-muted: #141414;
-  --border: #262626;
-  --border-strong: #404040;
+  /*
+   * Surfaces sit one step LIGHTER than the page. Cards used to share the page colour and were
+   * told apart by a hairline alone, which flattened every screen into one plane.
+   */
+  --surface: #111113;
+  --surface-muted: #18181b;
+  --surface-hover: #1c1c20;
+  --border: #26262b;
+  --border-strong: #3f3f46;
 
   /* Text */
-  --muted: #a3a3a3;
-  --muted-strong: #d4d4d4;
+  --muted: #a1a1aa;
+  --muted-strong: #d4d4d8;
 
   /* Accent — chrome, never status. Lifted for contrast on the dark ground. */
   --accent: #818cf8;
@@ -76,6 +80,24 @@
 }
 
 /*
+ * PIN THE ROOT SIZE so the console looks the same in every browser.
+ *
+ * Every Tailwind size is in rem, and 1rem is whatever the BROWSER's "default font size" setting
+ * says — 16px in stock Chrome, but Brave, Edge and a user's own settings can make it 18–20px,
+ * which blew the whole layout (sidebar, inputs, text) up by 20% in one browser and not the
+ * other. Fixing it at 16px removes that variable. Ctrl +/- zoom still works — it scales px too —
+ * so nobody loses the ability to enlarge the page.
+ *
+ * Screen resolution never mattered: CSS px are device-independent, so a 2000px-wide panel at
+ * 150% Windows scaling lays out like any ~1330px laptop.
+ */
+html {
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/*
  * Belt and braces for the options themselves. Every <select> here is `bg-transparent`, and on
  * Windows Chrome/Edge the open list takes its background from the select — transparent falls
  * back to white regardless of color-scheme. Giving options an explicit surface and text colour
@@ -115,4 +137,123 @@ body {
   outline: 2px solid var(--accent-ring);
   outline-offset: 2px;
   border-radius: 0.5rem;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Page frame                                                                 */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * ONE PAGE FRAME FOR THE WHOLE CONSOLE.
+ *
+ * Every page uses the same frame; only the MAXIMUM width differs by the kind of page:
+ *
+ *   .page          lists, dashboards, maps — use the room
+ *   .page-detail   one record — readable line length
+ *   .page-form     data entry — about the width of a real admin form (Stripe, Razorpay, AWS)
+ *
+ * CENTRED, not pinned to the sidebar. An earlier pass left-aligned every frame so the left edge
+ * never moved between screens — but a 40rem form hugging the sidebar on a wide laptop left a
+ * half-screen hole on the right, which reads as a broken layout. List pages fill the width
+ * anyway, so centring only moves the narrow frames, and those look intentional in the middle.
+ *
+ * In `@layer components` so a page can still override a detail with a utility class.
+ */
+@layer components {
+  .page {
+    display: flex;
+    width: 100%;
+    max-width: 100rem;
+    margin-inline: auto;
+    flex: 1 1 0%;
+    flex-direction: column;
+    gap: 1.5rem;
+    padding: 1.5rem 1rem 3rem;
+  }
+  @media (min-width: 640px) {
+    .page {
+      padding: 2rem 2rem 4rem;
+    }
+  }
+  .page-detail {
+    max-width: 60rem;
+  }
+  /* 40rem of content: a two-column row gives each field ~19rem, a single column stays scannable. */
+  .page-form {
+    max-width: 44rem;
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Grouped list rows                                                          */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * CONSECUTIVE ROWS BECOME ONE LIST.
+ *
+ * Every list used to render each record as its own floating card with a gap between — about
+ * seven records per screen, which is a brochure, not a console. `.list-row` siblings now join
+ * into a single bordered block with hairline dividers, rounded only at its two ends.
+ *
+ * Done with sibling selectors rather than a wrapper element on purpose: the rows sit in a dozen
+ * different parents, next to empty states and pagers, and this groups them wherever they are
+ * without restructuring a single page.
+ *
+ * Unlayered, so it wins over the `space-y-*` margins of whatever parent the rows land in.
+ */
+.list-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  margin: 0 !important;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  padding: 0.75rem 1.125rem;
+  text-align: left;
+  transition: background-color 120ms ease;
+}
+/* The previous row's bottom border is the divider; drawing a top border too doubled it. */
+.list-row + .list-row {
+  border-top-width: 0;
+}
+.list-row:not(.list-row + .list-row) {
+  border-top-left-radius: 0.75rem;
+  border-top-right-radius: 0.75rem;
+}
+.list-row:not(:has(+ .list-row)) {
+  border-bottom-left-radius: 0.75rem;
+  border-bottom-right-radius: 0.75rem;
+}
+/* A group that is followed by something (a pager, a heading) keeps its distance from it. */
+.list-row:not(:has(+ .list-row)):not(:last-child) {
+  margin-bottom: 1rem !important;
+}
+:where(a, button).list-row:hover {
+  background: var(--surface-hover);
+}
+/* An unread notification, a row needing action: a thin accent edge, not a coloured card. */
+.list-row[data-highlight='true'] {
+  background: linear-gradient(90deg, var(--accent-soft), transparent 40%), var(--surface);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* Section label above a list: "CHARGERS (41)". */
+.section-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/*
+ * Pages written with margin-based spacing (each block carries its own `mt-*`) keep normal flow;
+ * giving them the flex gap as well would double every gap.
+ */
+@layer components {
+  .page-flow {
+    display: block;
+  }
 }

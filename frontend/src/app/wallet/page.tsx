@@ -57,7 +57,7 @@ function LedgerRow({ entry }: { entry: WalletTransaction }) {
   const isCredit = entry.direction === 'credit';
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
+    <div className="list-row">
       <div className="min-w-0">
         <p className="truncate text-sm font-medium">{entry.description}</p>
         <p className="mt-0.5 text-xs text-neutral-500">
@@ -165,8 +165,8 @@ function WalletContent() {
   }
 
   return (
-    <main className="mx-auto max-w-2xl px-6 py-12">
-      <h1 className="text-2xl font-semibold">Wallet</h1>
+    <main className="page page-detail page-flow">
+      <h1 className="text-2xl font-semibold tracking-tight">Wallet</h1>
       <p className="mt-1 text-sm text-neutral-500">
         Charging is paid for from your balance the moment a session ends.
       </p>

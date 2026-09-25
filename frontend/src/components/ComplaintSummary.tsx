@@ -51,7 +51,7 @@ export function ComplaintRow({
   return (
     <Link
       href={`/complaints/${complaint.id}`}
-      className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-neutral-200 p-4 transition-colors hover:bg-neutral-500/5 dark:border-neutral-800"
+      className="list-row"
     >
       {/*
         A queue row must say WHERE and WHO without opening it — "Cable will not unlock" alone is

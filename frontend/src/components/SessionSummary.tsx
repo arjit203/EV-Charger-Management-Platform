@@ -95,7 +95,7 @@ export function SessionRow({ session }: { session: ChargingSession }) {
   return (
     <Link
       href={`/sessions/${session.id}`}
-      className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-neutral-200 p-4 transition-colors hover:bg-neutral-500/5 dark:border-neutral-800"
+      className="list-row"
     >
       <div className="min-w-0">
         {describeWhere(session) && (

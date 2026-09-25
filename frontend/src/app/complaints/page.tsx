@@ -52,10 +52,10 @@ function ComplaintsContent() {
   const { state } = useAsyncData(load);
 
   return (
-    <main className="mx-auto max-w-3xl px-6 py-12">
+    <main className="page page-flow">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">{isDriver ? 'My complaints' : 'Support queue'}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">{isDriver ? 'My complaints' : 'Support queue'}</h1>
           <p className="mt-1 text-sm text-neutral-500">
             {isDriver
               ? 'Problems you have reported, and what was done about them.'

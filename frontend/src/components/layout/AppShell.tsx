@@ -71,7 +71,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-screen w-full">
       {/* Desktop rail. Fixed width, its own scroll, always present from `lg` up. */}
-      <div className="hidden w-60 shrink-0 border-r border-neutral-200 lg:block dark:border-neutral-800">
+      <div className="hidden w-56 shrink-0 border-r border-[var(--border)] bg-[#0c0c0e] lg:block">
         <div className="sticky top-0 h-screen overflow-y-auto">
           <Sidebar role={user.role} pathname={pathname} />
         </div>
@@ -86,7 +86,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             onClick={() => setNavOpenAt(null)}
             className="absolute inset-0 bg-neutral-950/50"
           />
-          <div className="absolute inset-y-0 left-0 w-64 overflow-y-auto border-r border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950">
+          <div className="absolute inset-y-0 left-0 w-64 overflow-y-auto border-r border-[var(--border)] bg-[#0c0c0e]">
             <Sidebar role={user.role} pathname={pathname} />
           </div>
         </div>

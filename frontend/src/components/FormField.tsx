@@ -11,7 +11,7 @@ interface FormFieldProps extends InputHTMLAttributes<HTMLInputElement> {
 export function FormField({ label, name, error, hint, ...inputProps }: FormFieldProps) {
   return (
     <div className="space-y-1.5">
-      <label htmlFor={name} className="block text-sm font-medium">
+      <label htmlFor={name} className="block text-[13px] font-medium text-neutral-200">
         {label}
         {inputProps.required ? <span className="ml-0.5 text-red-500">*</span> : null}
       </label>
@@ -21,12 +21,12 @@ export function FormField({ label, name, error, hint, ...inputProps }: FormField
         name={name}
         aria-invalid={error ? true : undefined}
         aria-describedby={error ? `${name}-error` : hint ? `${name}-hint` : undefined}
-        className={`w-full rounded-lg border px-3 py-2 text-sm outline-none transition-colors
-          focus:ring-2 focus:ring-neutral-900/20 dark:focus:ring-white/20
+        className={`h-10 w-full rounded-lg border px-3 text-sm outline-none transition-colors
+          placeholder:text-neutral-600 focus:ring-2 focus:ring-[var(--accent-ring)]
           ${
             error
               ? 'border-red-500 bg-red-500/5'
-              : 'border-neutral-300 focus:border-neutral-500 dark:border-neutral-700 dark:focus:border-neutral-500'
+              : 'border-neutral-700 bg-[var(--background)] focus:border-[var(--accent)]'
           }`}
         {...inputProps}
       />

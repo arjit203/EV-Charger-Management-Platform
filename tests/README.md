@@ -46,7 +46,40 @@ a project dependency; install it wherever you run these:
 npm i playwright && npx playwright install chromium
 node tests/browser/dashboard.mjs      # dashboard UI + a live OCPP session
 node tests/browser/walkthrough.mjs    # map UI
+node tests/browser/roles-sweep.mjs    # every role, every page: console errors, failed API calls, logout
+node tests/browser/live-charging.mjs  # REAL simulator; driver + CPO pages update live, stop from the UI
+node tests/browser/support-flow.mjs   # ticket end to end in the UI, notes vs reply, read state, socket drop
+node tests/browser/razorpay-checkout.mjs  # the REAL Razorpay test Checkout (needs rzp_test keys + internet)
 ```
+
+All browser scripts take `APP_URL` / `API_URL`, so they also run against a production build
+(`next build` + `next start`) and a `NODE_ENV=production` backend.
+
+`dashboard.mjs` and `walkthrough.mjs` depend on fixtures from their modules (`fixtures-*.mjs`,
+`M15_*` env vars). `roles-sweep.mjs` and `live-charging.mjs` run against the seeded demo data.
+
+### Three-process end-to-end
+
+```bash
+node tests/e2e/charging-flow.mjs      # real simulator process + API + Socket.IO, backend on :5055
+AUDIT_PORT=5000 node tests/e2e/charging-flow.mjs
+```
+
+Start → RemoteStart → StartTransaction → MeterValues → stop → StopTransaction → tariff → one
+wallet debit → history, CPO views, analytics, notifications; plus company isolation on every
+channel, offline/reconnect, a wrong OCPP token, and two chargers charging at once.
+
+```bash
+node tests/e2e/audit-api.mjs          # tokens, isolation, operator limits, wallet edges, analytics vs raw data, DB hygiene
+node tests/e2e/audit-ocpp.mjs         # three simulators, fault keys (f/m/c), arrears, unpaid → settled by top-up
+```
+
+`tests/e2e/sim-keys.ts` is the real simulator driven over stdin instead of a TTY, so scripts can
+press its fault keys. Scripts that create drivers use `@test.local`; `npm run test:clean` removes them.
+
+### Pointing the suites at another instance
+
+Set `BASE` alone; the runner derives the OCPP (`WS_BASE`) and Socket.IO (`ORIGIN`) URLs from it.
 
 ---
 

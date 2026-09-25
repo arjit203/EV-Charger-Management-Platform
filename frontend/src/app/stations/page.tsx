@@ -20,6 +20,7 @@ import { listStationCities, listStations } from '@/services/station.service';
 import type { Station, StationStatus } from '@/types/api';
 import { buttonClasses } from '@/components/ui/Button';
 import { Pager, usePage } from '@/components/Pager';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 
 function statusTone(status: StationStatus) {
   if (status === 'active') return 'good' as const;
@@ -31,7 +32,7 @@ function StationRow({ station }: { station: Station }) {
   return (
     <Link
       href={`/stations/${station.id}`}
-      className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-neutral-200 p-4 transition-colors hover:bg-neutral-500/5 dark:border-neutral-800"
+      className="list-row"
     >
       <div className="min-w-0">
         <p className="truncate font-medium">{station.name}</p>
@@ -49,24 +50,25 @@ function StationRow({ station }: { station: Station }) {
 function StationListContent() {
   const { user } = useAuth();
   const [search, setSearch] = useState('');
+  const query = useDebouncedValue(search.trim());
   const [status, setStatus] = useState<StationStatus | ''>('');
   const [city, setCity] = useState('');
   const [companyId, setCompanyId] = useState('');
 
   // Filters change -> back to page 1 (see usePage).
-  const [page, setPage] = usePage(JSON.stringify([search, status, city, companyId]));
+  const [page, setPage] = usePage(JSON.stringify([query, status, city, companyId]));
 
   const load = useCallback(
     () =>
       listStations({
         page,
-        search: search || undefined,
+        search: query || undefined,
         status: status || undefined,
         city: city.trim() || undefined,
         companyId: companyId || undefined,
         limit: 50,
       }),
-    [search, status, city, companyId, page],
+    [query, status, city, companyId, page],
   );
 
   const { state } = useAsyncData(load);
@@ -80,13 +82,10 @@ function StationListContent() {
   const canCreate = user?.role === 'super_admin' || user?.role === 'cpo_admin';
 
   return (
-    <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-6 py-16">
+    <main className="page">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-medium uppercase tracking-widest text-neutral-500">
-            EV-CMS
-          </p>
-          <h1 className="mt-1 text-2xl font-semibold">Charging stations</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Charging stations</h1>
           <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
             {user?.role === 'super_admin'
               ? 'Every site across all companies on the platform.'

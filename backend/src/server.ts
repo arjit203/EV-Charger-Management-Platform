@@ -91,10 +91,20 @@ async function shutdown(signal: string): Promise<void> {
   }, 10_000);
   forceExit.unref();
 
+  /*
+   * Long-lived sockets FIRST. `httpServer.close` only calls back once every connection has ended,
+   * and OCPP chargers and browsers never hang up on their own — closing them inside the callback
+   * meant it never ran, and every shutdown ended in the 10s force-exit with code 1.
+   */
+  try {
+    await shutdownOcppGateway();
+    await closeRealtime();
+  } catch (error) {
+    logger.error(SCOPE, 'Error while closing charger and browser connections', error);
+  }
+
   httpServer.close(async () => {
     try {
-      await shutdownOcppGateway();
-      await closeRealtime();
       stopSettlementSweeper();
       stopComplaintSweeper();
       await disconnectDatabase();

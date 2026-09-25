@@ -38,8 +38,8 @@ function NewTariffContent() {
   }
 
   return (
-    <main className="mx-auto max-w-lg px-6 py-12">
-      <h1 className="text-2xl font-semibold">New tariff</h1>
+    <main className="page page-form page-flow">
+      <h1 className="text-2xl font-semibold tracking-tight">New tariff</h1>
       <p className="mt-1 text-sm text-neutral-500">
         A price sheet for a whole company — it applies to every station that company operates.
       </p>

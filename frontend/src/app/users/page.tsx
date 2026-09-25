@@ -21,12 +21,13 @@ import { listUsers } from '@/services/user.service';
 import { ROLE_LABELS, type Role, type User, type UserStatus } from '@/types/api';
 import { buttonClasses } from '@/components/ui/Button';
 import { Pager, usePage } from '@/components/Pager';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 
 function UserRow({ user }: { user: User }) {
   return (
     <Link
       href={`/users/${user.id}`}
-      className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-neutral-200 p-4 transition-colors hover:bg-neutral-500/5 dark:border-neutral-800"
+      className="list-row"
     >
       <div className="min-w-0">
         <p className="truncate font-medium">{user.name}</p>
@@ -46,37 +47,35 @@ function UserRow({ user }: { user: User }) {
 function UserListContent() {
   const { user } = useAuth();
   const [search, setSearch] = useState('');
+  const query = useDebouncedValue(search.trim());
   const [role, setRole] = useState<Role | ''>('');
   const [status, setStatus] = useState<UserStatus | ''>('');
   const [companyId, setCompanyId] = useState('');
 
   // Filters change -> back to page 1 (see usePage).
-  const [page, setPage] = usePage(JSON.stringify([search, role, status, companyId]));
+  const [page, setPage] = usePage(JSON.stringify([query, role, status, companyId]));
 
   const load = useCallback(
     () =>
       listUsers({
         page,
-        search: search || undefined,
+        search: query || undefined,
         role: role || undefined,
         status: status || undefined,
         companyId: companyId || undefined,
         limit: 50,
       }),
-    [search, role, status, companyId, page],
+    [query, role, status, companyId, page],
   );
 
   const { state } = useAsyncData(load);
   const isPlatformAdmin = user?.role === 'super_admin';
 
   return (
-    <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-6 py-16">
+    <main className="page">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-medium uppercase tracking-widest text-neutral-500">
-            EV-CMS
-          </p>
-          <h1 className="mt-1 text-2xl font-semibold">Users</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Users</h1>
           <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
             {isPlatformAdmin
               ? 'Everyone on the platform, including EV drivers.'

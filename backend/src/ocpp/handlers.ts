@@ -24,6 +24,7 @@ import {
 } from './messages';
 import {
   allocateTransactionId,
+  seedTransactionId,
   clearTransaction,
   findTransactionById,
   getTransactionByConnector,
@@ -455,6 +456,7 @@ export async function handleStartTransaction(
       timestamp: payload.timestamp,
     },
     allocateTransactionId,
+    seedTransactionId,
   );
 
   if (!outcome.accepted || !outcome.session || outcome.session.transactionId === null) {
@@ -539,7 +541,9 @@ export async function handleMeterValues(
   });
 
   if (outcome.stored) {
-    logger.info(
+    // DEBUG, not INFO: one line per reading per connector (every 5-60s while charging) buried
+    // every other log line. Start, stop and faults still log at INFO.
+    logger.debug(
       SCOPE,
       `Meter reading from ${connection.ocppId} (transaction ${transactionId}): ` +
         `${(energyWh / 1000).toFixed(3)} kWh on the meter`,

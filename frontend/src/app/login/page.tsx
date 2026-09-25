@@ -8,6 +8,7 @@ import { FormField } from '@/components/FormField';
 import { useAuth } from '@/context/AuthContext';
 import { extractFieldErrors, toMessage } from '@/lib/formatApiError';
 import { buttonClasses } from '@/components/ui/Button';
+import { AuthLayout } from '@/components/layout/AuthLayout';
 
 export default function LoginPage() {
   const { login, user, isLoading } = useAuth();
@@ -42,31 +43,18 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center gap-6 px-6 py-16">
-      {/*
-        * A product anchor, not a landing page. The mark plus two lines of plain description —
-        * the copy is taken as given rather than iterated on, because this is a sign-in screen,
-        * not a branding exercise.
-        */}
-      <header>
-        <div className="flex items-center gap-2.5">
-          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--accent)] text-sm font-bold text-[var(--accent-contrast)]">
-            EV
-          </span>
-          <span>
-            <span className="block text-base font-semibold tracking-tight">EV-CMS</span>
-            <span className="block text-xs text-neutral-500">
-              EV Charging Management Platform
-            </span>
-          </span>
-        </div>
-
-        <h1 className="mt-7 text-2xl font-semibold tracking-tight">Sign in</h1>
-        <p className="mt-1.5 text-sm text-neutral-600 dark:text-neutral-400">
-          Manage stations, chargers and charging operations.
-        </p>
-      </header>
-
+    <AuthLayout
+      title="Sign in"
+      description="Manage stations, chargers and charging operations."
+      footer={
+        <>
+          New here?{' '}
+          <Link href="/register" className="font-medium text-[var(--accent)] hover:text-[var(--accent-hover)]">
+            Create a driver account
+          </Link>
+        </>
+      }
+    >
       <form onSubmit={handleSubmit} className="space-y-4" noValidate>
         {error ? (
           <p
@@ -107,13 +95,6 @@ export default function LoginPage() {
           {isSubmitting ? 'Signing in…' : 'Sign in'}
         </button>
       </form>
-
-      <p className="text-sm text-neutral-600 dark:text-neutral-400">
-        New here?{' '}
-        <Link href="/register" className="font-medium underline underline-offset-4">
-          Create a driver account
-        </Link>
-      </p>
-    </main>
+    </AuthLayout>
   );
 }

@@ -80,6 +80,12 @@ interface DashboardData {
   activity: ActivityItem[];
 }
 
+/** "Good morning" by the viewer's own clock — the one place local time is the right time. */
+function greeting(): string {
+  const hour = new Date().getHours();
+  return hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+}
+
 function OperationsDashboard() {
   const { user } = useAuth();
   const canSeeRevenue = user?.role === 'super_admin' || user?.role === 'cpo_admin';
@@ -128,7 +134,7 @@ function OperationsDashboard() {
 
   if (state.status === 'error') {
     return (
-      <div className="p-4 sm:p-6">
+      <div className="page">
         <ErrorState message={toMessage(state.error)} onRetry={() => void reload()} />
       </div>
     );
@@ -136,7 +142,7 @@ function OperationsDashboard() {
 
   if (state.status === 'loading') {
     return (
-      <div className="space-y-4 p-4 sm:p-6">
+      <div className="page page-flow space-y-4">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {Array.from({ length: 8 }, (_, index) => (
             <Skeleton key={index} className="h-24" />
@@ -164,7 +170,19 @@ function OperationsDashboard() {
   const windowLabel = `last ${overview.range.days} days`;
 
   return (
-    <div className="space-y-4 p-4 sm:p-6">
+    <div className="page page-flow space-y-4">
+      {/* A heading the page owns, like every other screen — who is looking, and at what. */}
+      <header className="flex flex-wrap items-end justify-between gap-3 pb-2">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">{greeting()}, {user?.name}</h1>
+          <p className="mt-1 text-sm text-neutral-400">
+            {user?.role === 'super_admin'
+              ? 'Every company on the platform, as it is right now.'
+              : 'Your charging network, as it is right now.'}
+          </p>
+        </div>
+      </header>
+
       {/* ------------------------------------------------------------- cards */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard

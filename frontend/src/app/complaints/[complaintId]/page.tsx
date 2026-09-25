@@ -46,6 +46,7 @@ import type {
   DisputedSession,
 } from '@/types/api';
 import { formatDate, formatDateTime } from '@/lib/datetime';
+import { LoadError } from '@/components/ui/LoadError';
 
 const PRIORITIES: ComplaintPriority[] = ['high', 'medium', 'low'];
 
@@ -752,13 +753,11 @@ function ComplaintDetailContent() {
   const { state, setData } = useAsyncData(load);
 
   return (
-    <main className="mx-auto max-w-2xl px-6 py-12">
+    <main className="page page-detail page-flow">
       {state.status === 'loading' && <p className="text-sm text-neutral-500">Loading…</p>}
 
       {state.status === 'error' && (
-        <p className="rounded-lg bg-red-500/10 p-4 text-sm text-red-700 dark:text-red-400">
-          {toMessage(state.error)}
-        </p>
+        <LoadError error={state.error} noun="complaint" backHref="/complaints" backLabel="Back to complaints" />
       )}
 
       {state.status === 'ok' && (
@@ -766,7 +765,7 @@ function ComplaintDetailContent() {
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
               <p className="font-mono text-xs text-neutral-500">{state.data.complaint.ticketRef}</p>
-              <h1 className="text-2xl font-semibold">{state.data.complaint.subject}</h1>
+              <h1 className="text-2xl font-semibold tracking-tight">{state.data.complaint.subject}</h1>
               <p className="mt-1 text-sm text-neutral-500">
                 {CATEGORY_LABELS[state.data.complaint.category]}
                 {' · reported '}
@@ -820,12 +819,12 @@ function ComplaintDetailContent() {
           {isStaff ? (
             <StaffControls
               complaint={state.data.complaint}
-              onChanged={(complaint) => setData({ ...state.data, complaint })}
+              onChanged={(complaint) => setData((data) => ({ ...data, complaint }))}
             />
           ) : (
             <DriverControls
               complaint={state.data.complaint}
-              onChanged={(complaint) => setData({ ...state.data, complaint })}
+              onChanged={(complaint) => setData((data) => ({ ...data, complaint }))}
             />
           )}
 

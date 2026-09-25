@@ -8,6 +8,7 @@ import { FormField } from '@/components/FormField';
 import { useAuth } from '@/context/AuthContext';
 import { extractFieldErrors, toMessage } from '@/lib/formatApiError';
 import { buttonClasses } from '@/components/ui/Button';
+import { AuthLayout } from '@/components/layout/AuthLayout';
 
 export default function RegisterPage() {
   const { register, user, isLoading } = useAuth();
@@ -52,15 +53,18 @@ export default function RegisterPage() {
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center gap-6 px-6 py-16">
-      <header>
-        <p className="text-xs font-medium uppercase tracking-widest text-neutral-500">EV-CMS</p>
-        <h1 className="mt-1 text-2xl font-semibold">Create account</h1>
-        <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
-          Sign up as an EV driver to find stations and start charging.
-        </p>
-      </header>
-
+    <AuthLayout
+      title="Create account"
+      description="Sign up as an EV driver to find stations and start charging."
+      footer={
+        <>
+          Already have an account?{' '}
+          <Link href="/login" className="font-medium text-[var(--accent)] hover:text-[var(--accent-hover)]">
+            Sign in
+          </Link>
+        </>
+      }
+    >
       <form onSubmit={handleSubmit} className="space-y-4" noValidate>
         {error ? (
           <p
@@ -123,13 +127,6 @@ export default function RegisterPage() {
           {isSubmitting ? 'Creating account…' : 'Create account'}
         </button>
       </form>
-
-      <p className="text-sm text-neutral-600 dark:text-neutral-400">
-        Already have an account?{' '}
-        <Link href="/login" className="font-medium underline underline-offset-4">
-          Sign in
-        </Link>
-      </p>
-    </main>
+    </AuthLayout>
   );
 }

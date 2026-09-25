@@ -325,6 +325,17 @@ chargingSessionSchema.index({ userId: 1, startedAt: -1 });
 /** The admin list, and the range scans Module 13's analytics will run. */
 chargingSessionSchema.index({ companyId: 1, startedAt: -1 });
 
+/**
+ * The session LISTS sort by `requestedAt` (a session that never started still has one), which
+ * the `startedAt` indexes above cannot serve — every page sorted the company's whole history
+ * in memory.
+ */
+chargingSessionSchema.index({ companyId: 1, requestedAt: -1 });
+chargingSessionSchema.index({ userId: 1, requestedAt: -1 });
+
+/** The 5-second sweep for starts the charger never confirmed: status + age. */
+chargingSessionSchema.index({ status: 1, requestedAt: 1 });
+
 /** "Any open session on this charger?" — run on every charger disconnect. */
 chargingSessionSchema.index({ chargerId: 1, status: 1 });
 

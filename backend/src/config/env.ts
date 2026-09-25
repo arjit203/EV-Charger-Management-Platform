@@ -47,7 +47,12 @@ if (Number.isNaN(port) || port <= 0 || port > 65535) {
 export const env = {
   nodeEnv,
   isProduction: nodeEnv === 'production',
-  isDevelopment: nodeEnv !== 'production',
+  /*
+   * EXPLICIT development only. This gates stack traces in error responses, and "anything but
+   * production" leaked them from any server whose NODE_ENV said `staging`, `test` or a typo.
+   * Unrecognised values now fail safe.
+   */
+  isDevelopment: nodeEnv === 'development',
 
   port,
   apiPrefix: optional('API_PREFIX', '/api/v1'),

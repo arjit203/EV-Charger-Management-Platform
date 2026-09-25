@@ -35,7 +35,7 @@ export function RelatedComplaints({
   const open = items.filter((c) => c.status === 'open' || c.status === 'in_progress').length;
 
   return (
-    <section className="rounded-xl border border-neutral-200 p-5 dark:border-neutral-800">
+    <section className="rounded-xl border border-neutral-200 bg-[var(--surface)] p-5 dark:border-neutral-800">
       <h2 className="text-sm font-semibold">
         Complaints about this {label}
         <span className="ml-2 font-normal text-neutral-500">

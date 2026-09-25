@@ -274,7 +274,10 @@ if (driverEmail) {
   const text = (await bodyText(page)).toLowerCase();
 
   chk('no uncaught page errors', [], errors);
-  chk('NO admin sidebar for a driver', 0, await page.locator('nav[aria-label="Main"]').count());
+  // Drivers DO get the shell since the real-world pass (AppShell.tsx) — with their OWN menu. What
+  // must never appear is an admin destination.
+  chk('NO admin links in the driver sidebar', 0,
+    await page.locator('nav a[href="/companies"], nav a[href="/users"], nav a[href="/payments"], nav a[href="/tariffs"], nav a[href="/monitor"], nav a[href="/analytics"]').count());
   chk('driver still gets their own welcome page', true, text.includes('welcome,'));
   chk('and their own links', true, text.includes('start charging') && text.includes('my vehicles'));
   chk('and NOT the operations cards', false, text.includes('charging now') && text.includes('open complaints'));

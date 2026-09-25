@@ -16,11 +16,13 @@ import { useRouter } from 'next/navigation';
 
 import { useAuth } from '@/context/AuthContext';
 import { useSocketEvent } from '@/hooks/useSocketEvent';
+import { useSocket } from '@/context/SocketContext';
 import {
   getUnreadCount,
   listNotifications,
   markAllAsRead,
   markAsRead,
+  NOTIFICATIONS_CHANGED,
 } from '@/services/notification.service';
 import type { AppNotification } from '@/types/api';
 
@@ -59,6 +61,12 @@ export function NotificationBell() {
   const containerRef = useRef<HTMLDivElement>(null);
 
   const userId = user?.id ?? null;
+  /*
+   * Anything pushed while the socket was down is gone for good — Socket.IO does not replay. So
+   * each RE-connect (not the first connect, which the mount load already covers) refetches.
+   */
+  const { reconnectCount } = useSocket();
+  const resync = reconnectCount > 1 ? reconnectCount : 0;
 
   /*
    * The project's established load-on-mount shape (see `useAsyncData`): an async IIFE with a
@@ -90,10 +98,16 @@ export function NotificationBell() {
     return () => {
       cancelled = true;
     };
-  }, [userId, reloadToken]);
+  }, [userId, reloadToken, resync]);
 
   /** Bumped to force a reload after an action that invalidates what is displayed. */
   const refresh = useCallback(() => setReloadToken((value) => value + 1), []);
+
+  // Something else (the Notifications page) marked notifications read — follow it.
+  useEffect(() => {
+    window.addEventListener(NOTIFICATIONS_CHANGED, refresh);
+    return () => window.removeEventListener(NOTIFICATIONS_CHANGED, refresh);
+  }, [refresh]);
 
   /*
    * A new notification arrived. Prepend it and bump the badge rather than refetching — the

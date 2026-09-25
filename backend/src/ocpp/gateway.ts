@@ -36,6 +36,7 @@ import {
 import * as registry from './registry';
 import * as sessionEvents from '../services/sessionEvents.service';
 import * as realtime from '../realtime/publisher';
+import { singleFlight } from '../utils/singleFlight';
 
 const SCOPE = 'ocpp';
 
@@ -77,6 +78,9 @@ function describeCloseCode(code: number): string {
 
 let wss: WebSocketServer | null = null;
 let sweepTimer: NodeJS.Timeout | null = null;
+
+/** 1 MiB: generous for any OCPP 1.6J message, including a large DataTransfer. */
+const OCPP_MAX_FRAME_BYTES = 1024 * 1024;
 
 /* -------------------------------------------------------------------------- */
 /* Authentication                                                             */
@@ -181,6 +185,15 @@ async function onFrame(connection: registry.ChargerConnection, raw: string): Pro
     );
     return;
   }
+
+  /*
+   * ANY valid frame proves the charger is alive, not only Heartbeat. OCPP 1.6J lets a charge
+   * point skip Heartbeat.req while it is sending other messages, and real chargers do exactly
+   * that mid-charge. Counting only heartbeats marked such a charger offline — and FAILED its
+   * running session — while its MeterValues were still arriving. In-memory only: the stored
+   * `lastHeartbeatAt` is still written by Boot/Heartbeat, so this adds no database write per frame.
+   */
+  registry.touchHeartbeat(connection.ocppId);
 
   // A reply to something WE sent (RemoteStart/RemoteStop).
   if (message.type === MessageType.CALLRESULT || message.type === MessageType.CALLERROR) {
@@ -366,7 +379,9 @@ async function reconcileOnlineStateAtBoot(): Promise<void> {
 /* -------------------------------------------------------------------------- */
 
 export function attachOcppGateway(httpServer: HttpServer): void {
-  wss = new WebSocketServer({ noServer: true });
+  // OCPP frames are small JSON messages. Without a cap the ws default is 100 MiB per frame, and
+  // the cap applies before authentication, so any client could make us buffer that much.
+  wss = new WebSocketServer({ noServer: true, maxPayload: OCPP_MAX_FRAME_BYTES });
 
   httpServer.on('upgrade', (request, socket, head) => {
     const path = new URL(request.url ?? '/', 'http://localhost').pathname;
@@ -397,7 +412,8 @@ export function attachOcppGateway(httpServer: HttpServer): void {
     logger.error(SCOPE, 'Startup check of which chargers are online failed', error),
   );
 
-  sweepTimer = setInterval(() => void sweepStaleConnections(), SWEEP_INTERVAL_MS);
+  const sweep = singleFlight(sweepStaleConnections);
+  sweepTimer = setInterval(() => void sweep(), SWEEP_INTERVAL_MS);
   sweepTimer.unref();
 
   // Module 7: resume transaction ids where the last process left off, so a restart cannot

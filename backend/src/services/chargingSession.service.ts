@@ -929,11 +929,23 @@ export async function listSessionReadings(
   ).select('_id');
   if (!session) throw sessionNotFound(actor);
 
-  const readings = await MeterReading.find({ sessionId: session._id })
-    .sort({ meterTimestamp: 1 })
-    .limit(limit);
+  /*
+   * SPREAD OVER THE WHOLE CHARGE, never cut off. `.limit(500)` on an ascending sort returned the
+   * first 500 readings, so any charge longer than ~40 minutes at a 5s tick drew a curve that
+   * stopped part-way. Above the limit we thin evenly and always keep the first and last reading,
+   * so the chart spans start to finish and ends on the energy actually billed.
+   */
+  const filter = { sessionId: session._id };
+  const total = await MeterReading.countDocuments(filter);
+  if (total <= limit) {
+    return (await MeterReading.find(filter).sort({ meterTimestamp: 1 })).map(toPublicMeterReading);
+  }
 
-  return readings.map(toPublicMeterReading);
+  const all = await MeterReading.find(filter).sort({ meterTimestamp: 1 });
+  if (limit === 1) return [toPublicMeterReading(all[all.length - 1])];
+  const step = (all.length - 1) / (limit - 1);
+  const picked = Array.from({ length: limit }, (_, i) => all[Math.round(i * step)]);
+  return picked.map(toPublicMeterReading);
 }
 
 /**

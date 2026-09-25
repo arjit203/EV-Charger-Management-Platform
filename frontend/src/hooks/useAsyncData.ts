@@ -16,7 +16,7 @@
  * every render will refetch in a loop.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ApiClientError } from '@/services/apiClient';
 
@@ -36,6 +36,13 @@ export function useAsyncData<T>(load: () => Promise<T>) {
 
   const apply = useCallback((next: AsyncState<T>) => setState(next), []);
 
+  /*
+   * Every load or reload takes a ticket; only the newest ticket may write. Live pages reload on
+   * pushed events, several can be in flight at once, and responses do not return in order — a
+   * slow older reply used to land last and overwrite fresher data.
+   */
+  const latest = useRef(0);
+
   const run = useCallback(async (): Promise<AsyncState<T>> => {
     try {
       return { status: 'ok', data: await load() };
@@ -46,10 +53,11 @@ export function useAsyncData<T>(load: () => Promise<T>) {
 
   useEffect(() => {
     let cancelled = false;
+    const ticket = ++latest.current;
 
     void (async () => {
       const next = await run();
-      if (!cancelled) apply(next);
+      if (!cancelled && ticket === latest.current) apply(next);
     })();
 
     return () => {
@@ -59,11 +67,28 @@ export function useAsyncData<T>(load: () => Promise<T>) {
 
   /** Re-run the loader, e.g. after a mutation. */
   const reload = useCallback(async () => {
-    apply(await run());
+    const ticket = ++latest.current;
+    const next = await run();
+    if (ticket === latest.current) apply(next);
   }, [run, apply]);
 
-  /** Replace the loaded value without a round trip, after a mutation returns fresh data. */
-  const setData = useCallback((data: T) => apply({ status: 'ok', data }), [apply]);
+  /**
+   * Replace the loaded value without a round trip, after a mutation returns fresh data.
+   *
+   * Pass an UPDATER from socket handlers. They run outside React's render cycle, and the server
+   * often emits several events back to back (a stop sends session, connector and meter updates
+   * together). Built from the `state` captured at the last render, the second event's value
+   * replaced the first's — the board silently lost an update until the next reload. An updater
+   * always starts from the latest data. It is ignored while nothing is loaded yet.
+   */
+  const setData = useCallback((next: T | ((current: T) => T)) => {
+    setState((previous) => {
+      if (typeof next !== 'function') return { status: 'ok', data: next };
+      return previous.status === 'ok'
+        ? { status: 'ok', data: (next as (current: T) => T)(previous.data) }
+        : previous;
+    });
+  }, []);
 
   return { state, reload, setData };
 }

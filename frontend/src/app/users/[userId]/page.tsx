@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import Link from 'next/link';
 
 import { FormField } from '@/components/FormField';
@@ -14,6 +14,7 @@ import { getUser, setUserStatus, updateUser } from '@/services/user.service';
 import { ROLE_LABELS, type User } from '@/types/api';
 import { buttonClasses } from '@/components/ui/Button';
 import { formatDateTime } from '@/lib/datetime';
+import { LoadError } from '@/components/ui/LoadError';
 
 function UserDetails({ user, onChanged }: { user: User; onChanged: (user: User) => void }) {
   const { user: me } = useAuth();
@@ -60,9 +61,9 @@ function UserDetails({ user, onChanged }: { user: User; onChanged: (user: User) 
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <p className="text-xs font-medium uppercase tracking-widest text-neutral-500">
-            EV-CMS &middot; User
+            User
           </p>
-          <h1 className="mt-1 truncate text-2xl font-semibold">{user.name}</h1>
+          <h1 className="mt-1 truncate text-2xl font-semibold tracking-tight">{user.name}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <StatusBadge tone="neutral" label={ROLE_LABELS[user.role]} />
             <StatusBadge tone={user.status === 'active' ? 'good' : 'bad'} label={user.status} />
@@ -104,7 +105,7 @@ function UserDetails({ user, onChanged }: { user: User; onChanged: (user: User) 
         </p>
       ) : null}
 
-      <section className="rounded-xl border border-neutral-200 p-5 dark:border-neutral-800">
+      <section className="rounded-xl border border-neutral-200 bg-[var(--surface)] p-5 dark:border-neutral-800">
         {isEditing ? (
           <form onSubmit={handleSave} className="space-y-4" noValidate>
             <p className="text-xs text-neutral-500">
@@ -161,31 +162,17 @@ function UserDetails({ user, onChanged }: { user: User; onChanged: (user: User) 
 
 function UserDetailContent() {
   const params = useParams<{ userId: string }>();
-  const router = useRouter();
   const userId = params.userId;
 
   const load = useCallback(() => getUser(userId), [userId]);
   const { state, setData } = useAsyncData(load);
 
   return (
-    <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-16">
+    <main className="page page-detail">
       {state.status === 'loading' ? (
         <p className="text-sm text-neutral-500">Loading user&hellip;</p>
       ) : state.status === 'error' ? (
-        <div className="space-y-3">
-          <p className="text-sm font-medium">{state.error.message}</p>
-          <p className="text-xs text-neutral-500">
-            {state.error.status === 403 || state.error.status === 404
-              ? 'This record does not exist, or it belongs to another company.'
-              : 'Please try again in a moment.'}
-          </p>
-          <button
-            type="button" onClick={() => router.back()}
-            className={buttonClasses('secondary')}
-          >
-            Go back
-          </button>
-        </div>
+        <LoadError error={state.error} noun="user" backHref="/users" backLabel="Back to users" />
       ) : (
         <UserDetails user={state.data} onChanged={setData} />
       )}

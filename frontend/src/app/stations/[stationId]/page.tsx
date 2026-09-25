@@ -10,7 +10,7 @@
  */
 
 import { useCallback, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import { RelatedComplaints } from '@/components/RelatedComplaints';
 import Link from 'next/link';
 
@@ -29,6 +29,7 @@ import {
 import { STATION_STATUS_LABELS, type Station, type StationStatus } from '@/types/api';
 import { buttonClasses } from '@/components/ui/Button';
 import { formatDateTime } from '@/lib/datetime';
+import { LoadError } from '@/components/ui/LoadError';
 
 function statusTone(status: StationStatus) {
   if (status === 'active') return 'good' as const;
@@ -75,9 +76,9 @@ function StationDetails({
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <p className="text-xs font-medium uppercase tracking-widest text-neutral-500">
-            EV-CMS &middot; Station
+            Station
           </p>
-          <h1 className="mt-1 truncate text-2xl font-semibold">{station.name}</h1>
+          <h1 className="mt-1 truncate text-2xl font-semibold tracking-tight">{station.name}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <StatusBadge tone={statusTone(station.status)} label={station.status} />
             <StatusBadge tone="neutral" label={station.stationCode} />
@@ -142,7 +143,7 @@ function StationDetails({
         </p>
       ) : null}
 
-      <section className="rounded-xl border border-neutral-200 p-5 dark:border-neutral-800">
+      <section className="rounded-xl border border-neutral-200 bg-[var(--surface)] p-5 dark:border-neutral-800">
         {isEditing ? (
           <StationForm
             initial={station}
@@ -186,7 +187,7 @@ function StationDetails({
         )}
       </section>
 
-      <section className="rounded-xl border border-neutral-200 p-5 dark:border-neutral-800">
+      <section className="rounded-xl border border-neutral-200 bg-[var(--surface)] p-5 dark:border-neutral-800">
         <h2 className="text-sm font-semibold">Chargers at this station</h2>
         <p className="mt-1 text-xs text-neutral-500">
           The physical machines installed here, each with its own connectors.
@@ -210,29 +211,17 @@ function StationDetails({
 
 function StationDetailContent() {
   const params = useParams<{ stationId: string }>();
-  const router = useRouter();
   const stationId = params.stationId;
 
   const load = useCallback(() => getStation(stationId), [stationId]);
   const { state, setData } = useAsyncData(load);
 
   return (
-    <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-16">
+    <main className="page page-detail">
       {state.status === 'loading' ? (
         <p className="text-sm text-neutral-500">Loading station&hellip;</p>
       ) : state.status === 'error' ? (
-        <div className="space-y-3">
-          <p className="text-sm font-medium">{state.error.message}</p>
-          <p className="text-xs text-neutral-500">
-            {state.error.status === 403 || state.error.status === 404
-              ? 'This record does not exist, or it belongs to another company.'
-              : 'Please try again in a moment.'}
-          </p>
-          <button type="button" onClick={() => router.back()}
-            className={buttonClasses('secondary')}>
-            Go back
-          </button>
-        </div>
+        <LoadError error={state.error} noun="station" backHref="/stations" backLabel="Back to stations" />
       ) : (
         <>
           <StationDetails station={state.data} onChanged={setData} />

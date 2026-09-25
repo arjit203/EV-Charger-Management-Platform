@@ -24,7 +24,8 @@ import {
 } from '../models/notification.model';
 import { User } from '../models/user.model';
 import { Station } from '../models/station.model';
-import { complaintRef } from '../models/complaint.model';
+import { Complaint, complaintRef } from '../models/complaint.model';
+import { Charger } from '../models/charger.model';
 import { dedupeKeys, type NotificationType, type ReferenceType } from '../constants/notification';
 import { ROLES } from '../constants/roles';
 import { ApiError } from '../utils/ApiError';
@@ -420,6 +421,52 @@ export async function complaintReopened(
  * Someone else's notifications are personal data, and there is no admin path to them at all in
  * this module. Nothing needs one.
  */
+/**
+ * Staff notifications that point OUTSIDE the actor's company, or at a record that is gone.
+ *
+ * A notification is written once, at the moment of the event, for whoever was staff of that
+ * company then. It can go stale afterwards: the staff member moves company, the demo data is
+ * reseeded, the complaint or charger is deleted. Showing it anyway is a dead link at best —
+ * the operator clicks "New complaint" and gets "not your company". So staff lists are filtered
+ * at READ time against the record's CURRENT company, which is the same ownership rule the
+ * complaint and charger endpoints enforce. Drivers are untouched: their references are their
+ * own sessions and complaints, keyed by userId, and cannot drift.
+ */
+async function staleStaffReferenceIds(actor: AuthUser): Promise<Types.ObjectId[]> {
+  if (actor.role !== ROLES.CPO_ADMIN && actor.role !== ROLES.OPERATOR) return [];
+
+  // DISTINCT referenced records, not every notification row: bounded by how many tickets and
+  // chargers exist, not by how many notifications a long-serving staff member has piled up.
+  const scope = (type: ReferenceType) => applyOwnerScope(actor, { referenceType: type });
+  const [complaintIds, chargerIds] = await Promise.all([
+    Notification.distinct('referenceId', scope('complaint')),
+    Notification.distinct('referenceId', scope('charger')),
+  ]);
+  if (complaintIds.length === 0 && chargerIds.length === 0) return [];
+
+  const companyId = actor.companyId ? new Types.ObjectId(String(actor.companyId)) : null;
+  const [complaints, chargers] = await Promise.all([
+    Complaint.find({ _id: { $in: complaintIds }, companyId }).select('_id').lean(),
+    Charger.find({ _id: { $in: chargerIds }, companyId }).select('_id').lean(),
+  ]);
+  const visible = new Set([...complaints, ...chargers].map((d) => String(d._id)));
+
+  return [...complaintIds, ...chargerIds]
+    .filter((id) => !visible.has(String(id)))
+    .map((id) => new Types.ObjectId(String(id)));
+}
+
+/** The owner scope plus, for staff, "not pointing outside your company". */
+async function visibleScope(
+  actor: AuthUser,
+  filter: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const stale = await staleStaffReferenceIds(actor);
+  const scoped: Record<string, unknown> = applyOwnerScope(actor, filter);
+  if (stale.length > 0) scoped.referenceId = { $nin: stale };
+  return scoped;
+}
+
 export async function listNotifications(
   actor: AuthUser,
   options: { page?: number; limit?: number; unread?: boolean } = {},
@@ -427,7 +474,7 @@ export async function listNotifications(
   const filter: Record<string, unknown> = {};
   if (options.unread) filter.isRead = false;
 
-  const scoped = applyOwnerScope(actor, filter);
+  const scoped = await visibleScope(actor, filter);
 
   const page = options.page ?? 1;
   const limit = options.limit ?? 20;
@@ -447,7 +494,8 @@ export async function listNotifications(
 }
 
 export async function getUnreadCount(actor: AuthUser): Promise<number> {
-  return Notification.countDocuments(applyOwnerScope(actor, { isRead: false }));
+  // Same visibility as the list, or the bell promises rows the page will not show.
+  return Notification.countDocuments(await visibleScope(actor, { isRead: false }));
 }
 
 /**

@@ -1,6 +1,6 @@
 /**
- * Seed two companies and their staff, so the company isolation can be exercised by hand
- * in the browser rather than only by the automated suite.
+ * Seed the demo CPO network — five companies, their staff, sites and chargers — so the company
+ * isolation can be exercised by hand in the browser rather than only by the automated suite.
  *
  * Run:  npm run seed:demo
  *
@@ -69,6 +69,80 @@ const DEMO = [
         chargers: [
           { chargerCode: '01', name: 'Plaza DC 1', ocppId: 'SHA-MUM-AE-01-A', manufacturer: 'Delta', model: 'DC Wallbox 60', chargerType: 'DC', powerKw: 60, firmwareVersion: '1.4.2',
             connectors: [ { connectorNumber: 1, connectorType: 'CCS2', powerKw: 60 } ] },
+        ] },
+      { name: 'Bandra Kurla Complex', stationCode: 'MUM-BKC-02', address: 'G Block, Bandra Kurla Complex', city: 'Mumbai', state: 'Maharashtra', country: 'India', postalCode: '400051', latitude: 19.0660, longitude: 72.8677, openingHours: '07:00-22:00',
+        chargers: [
+          { chargerCode: '01', name: 'BKC AC 1', ocppId: 'SHA-MUM-BKC-02-A', manufacturer: 'Exicom', model: 'AC Smart 22', chargerType: 'AC', powerKw: 22, firmwareVersion: '2.0.1',
+            connectors: [ { connectorNumber: 1, connectorType: 'Type2', powerKw: 22 } ] },
+        ] },
+    ],
+  },
+  /*
+   * Three more operators so the platform view looks like a real multi-CPO network — six
+   * companies, eight sites, ten chargers across five cities — instead of two. Names are
+   * invented on purpose: a demo must never pass itself off as a real operator's network.
+   */
+  {
+    name: 'VoltPath Charging',
+    legalName: 'VoltPath Charging Solutions Pvt Ltd',
+    contactEmail: 'ops@voltpath.local',
+    address: { line1: '80 Feet Road, Koramangala', city: 'Bengaluru', state: 'Karnataka', country: 'India', postalCode: '560034' },
+    tariffName: 'Bengaluru Standard',
+    pricePerKwhPaise: 1350,
+    staff: [
+      { name: 'VoltPath CPO Admin', email: 'cpo@voltpath.local', role: ROLES.CPO_ADMIN, password: 'Cpo@12345' },
+      { name: 'VoltPath Operator', email: 'ops@voltpath.local', role: ROLES.OPERATOR, password: 'Ops@12345' },
+    ],
+    stations: [
+      { name: 'Koramangala Tech Park', stationCode: 'BLR-KR-01', address: '80 Feet Road, Koramangala 4th Block', city: 'Bengaluru', state: 'Karnataka', country: 'India', postalCode: '560034', latitude: 12.9352, longitude: 77.6245, openingHours: '24x7',
+        chargers: [
+          { chargerCode: '01', name: 'Koramangala DC 1', ocppId: 'VPC-BLR-KR-01-A', manufacturer: 'ABB', model: 'Terra 54', chargerType: 'DC', powerKw: 50, firmwareVersion: '2.4.0',
+            connectors: [ { connectorNumber: 1, connectorType: 'CCS2', powerKw: 50 } ] },
+        ] },
+      { name: 'Whitefield Forum Mall', stationCode: 'BLR-WF-02', address: 'ITPL Main Road, Whitefield', city: 'Bengaluru', state: 'Karnataka', country: 'India', postalCode: '560066', latitude: 12.9698, longitude: 77.7500, openingHours: '10:00-22:00',
+        chargers: [
+          { chargerCode: '01', name: 'Mall AC 1', ocppId: 'VPC-BLR-WF-02-A', manufacturer: 'Delta', model: 'AC Mini Plus', chargerType: 'AC', powerKw: 7.4, firmwareVersion: '1.2.3',
+            connectors: [ { connectorNumber: 1, connectorType: 'Type2', powerKw: 7.4 } ] },
+        ] },
+    ],
+  },
+  {
+    name: 'Kaveri EV Networks',
+    legalName: 'Kaveri EV Networks Pvt Ltd',
+    contactEmail: 'ops@kaveriev.local',
+    address: { line1: 'Rajiv Gandhi Salai, Sholinganallur', city: 'Chennai', state: 'Tamil Nadu', country: 'India', postalCode: '600119' },
+    tariffName: 'Chennai Standard',
+    pricePerKwhPaise: 1300,
+    staff: [
+      { name: 'Kaveri CPO Admin', email: 'cpo@kaveriev.local', role: ROLES.CPO_ADMIN, password: 'Cpo@12345' },
+      { name: 'Kaveri Operator', email: 'ops@kaveriev.local', role: ROLES.OPERATOR, password: 'Ops@12345' },
+    ],
+    stations: [
+      { name: 'OMR Sholinganallur', stationCode: 'CHE-OMR-01', address: 'Rajiv Gandhi Salai, Sholinganallur', city: 'Chennai', state: 'Tamil Nadu', country: 'India', postalCode: '600119', latitude: 12.9010, longitude: 80.2279, openingHours: '24x7',
+        chargers: [
+          { chargerCode: '01', name: 'OMR Fast 1', ocppId: 'KEV-CHE-OMR-01-A', manufacturer: 'Tritium', model: 'RTM 75', chargerType: 'DC', powerKw: 75, firmwareVersion: '4.0.2',
+            connectors: [ { connectorNumber: 1, connectorType: 'CCS2', powerKw: 75 } ] },
+          { chargerCode: '02', name: 'OMR AC 2', ocppId: 'KEV-CHE-OMR-01-B', manufacturer: 'Exicom', model: 'AC Smart 22', chargerType: 'AC', powerKw: 22, firmwareVersion: '2.0.1',
+            connectors: [ { connectorNumber: 1, connectorType: 'Type2', powerKw: 22 } ] },
+        ] },
+    ],
+  },
+  {
+    name: 'Deccan Charge Point',
+    legalName: 'Deccan Charge Point LLP',
+    contactEmail: 'ops@deccancharge.local',
+    address: { line1: 'Rajiv Gandhi Infotech Park, Hinjewadi Phase 1', city: 'Pune', state: 'Maharashtra', country: 'India', postalCode: '411057' },
+    tariffName: 'Pune Standard',
+    pricePerKwhPaise: 1250,
+    staff: [
+      { name: 'Deccan CPO Admin', email: 'cpo@deccancharge.local', role: ROLES.CPO_ADMIN, password: 'Cpo@12345' },
+      { name: 'Deccan Operator', email: 'ops@deccancharge.local', role: ROLES.OPERATOR, password: 'Ops@12345' },
+    ],
+    stations: [
+      { name: 'Hinjewadi Phase 1', stationCode: 'PUN-HJ-01', address: 'Rajiv Gandhi Infotech Park, Phase 1', city: 'Pune', state: 'Maharashtra', country: 'India', postalCode: '411057', latitude: 18.5912, longitude: 73.7389, openingHours: '24x7',
+        chargers: [
+          { chargerCode: '01', name: 'Hinjewadi DC 1', ocppId: 'DCP-PUN-HJ-01-A', manufacturer: 'Delta', model: 'DC Wallbox 60', chargerType: 'DC', powerKw: 60, firmwareVersion: '1.4.2',
+            connectors: [ { connectorNumber: 1, connectorType: 'CCS2', powerKw: 60 }, { connectorNumber: 2, connectorType: 'Type2', powerKw: 22 } ] },
         ] },
     ],
   },

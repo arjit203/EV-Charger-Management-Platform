@@ -57,7 +57,7 @@ function VehicleCard({
   }
 
   return (
-    <article className="rounded-xl border border-neutral-200 p-5 dark:border-neutral-800">
+    <article className="rounded-xl border border-neutral-200 bg-[var(--surface)] p-5 dark:border-neutral-800">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 className="truncate font-medium">
@@ -129,13 +129,10 @@ function MyVehiclesContent() {
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-16">
+    <main className="page page-detail">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-medium uppercase tracking-widest text-neutral-500">
-            EV-CMS
-          </p>
-          <h1 className="mt-1 text-2xl font-semibold">My vehicles</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">My vehicles</h1>
           <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
             The EVs on your account. Connector type decides which chargers will fit.
           </p>
@@ -151,7 +148,7 @@ function MyVehiclesContent() {
       </header>
 
       {isAdding ? (
-        <section className="rounded-xl border border-neutral-200 p-5 dark:border-neutral-800">
+        <section className="rounded-xl border border-neutral-200 bg-[var(--surface)] p-5 dark:border-neutral-800">
           <h2 className="mb-4 text-sm font-semibold">New vehicle</h2>
           <VehicleForm
             submitLabel="Add vehicle"

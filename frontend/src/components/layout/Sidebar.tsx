@@ -18,7 +18,7 @@ export function Sidebar({ role, pathname }: { role: Role; pathname: string }) {
 
   return (
     <nav aria-label="Main" className="flex h-full flex-col gap-1 p-3">
-      <div className="mb-4 flex items-center gap-2.5 px-3 py-2">
+      <div className="-mx-3 -mt-3 mb-3 flex h-14 items-center gap-2.5 border-b border-[var(--border)] px-5">
         {/* A square mark, not a logo. Anchors the rail without inventing branding. */}
         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--accent)] text-[13px] font-bold text-[var(--accent-contrast)]">
           EV
@@ -32,7 +32,7 @@ export function Sidebar({ role, pathname }: { role: Role; pathname: string }) {
       {groups.map((group) => (
         <div key={group.title ?? 'root'} className="mb-2">
           {group.title && (
-            <p className="px-3 pb-1.5 pt-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-neutral-400">
+            <p className="px-3 pb-1.5 pt-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-neutral-500">
               {group.title}
             </p>
           )}
@@ -47,10 +47,10 @@ export function Sidebar({ role, pathname }: { role: Role; pathname: string }) {
                   <Link
                     href={item.href}
                     aria-current={active ? 'page' : undefined}
-                    className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors ${
+                    className={`flex items-center gap-2.5 rounded-md px-3 py-1.5 text-[13px] transition-colors ${
                       active
-                        ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent)]'
-                        : 'text-neutral-600 hover:bg-neutral-500/10 hover:text-neutral-900 dark:text-neutral-300 dark:hover:text-neutral-100'
+                        ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent-hover)] shadow-[inset_2px_0_0_var(--accent)]'
+                        : 'text-neutral-400 hover:bg-white/[0.04] hover:text-neutral-100'
                     }`}
                   >
                     {Icon && <Icon className="h-4 w-4" />}

@@ -64,7 +64,7 @@ export function StatCard({
   );
 
   const base =
-    'flex min-h-[7rem] flex-col justify-center rounded-xl border border-neutral-200 p-4 ' +
+    'flex min-h-[7rem] flex-col justify-center rounded-xl border border-neutral-200 bg-[var(--surface)] p-4 ' +
     'dark:border-neutral-800';
 
   return href ? (
@@ -96,7 +96,7 @@ export function Panel({
      * inside would widen the whole grid column and push the PAGE sideways on a phone, instead
      * of scrolling inside its own `overflow-x-auto`. A browser check caught exactly that.
      */
-    <section className="min-w-0 rounded-xl border border-neutral-200 dark:border-neutral-800">
+    <section className="min-w-0 rounded-xl border border-neutral-200 bg-[var(--surface)] dark:border-neutral-800">
       <header className="flex items-center justify-between gap-3 border-b border-neutral-200 px-4 py-3 dark:border-neutral-800">
         <h2 className="text-sm font-semibold tracking-tight">{title}</h2>
         {action && (

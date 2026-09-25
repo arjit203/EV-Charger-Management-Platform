@@ -61,7 +61,14 @@ export function FleetStatus({ fleet }: { fleet: FleetSnapshot }) {
    * a reload authoritative over any accumulated socket deltas.
    */
   const [connectors, setConnectors] = useState(fleet.connectorsByStatus);
-  const [online, setOnline] = useState(fleet.chargersOnline);
+  /*
+   * The online count TOGETHER WITH the last state each charger was reported in, so a repeated
+   * event is not counted twice. A charger that reconnects while its old socket is still open is
+   * announced online again with no offline in between — a blind +1 per event drifted the tile
+   * above the real number until a reload. One state object, so one pure updater keeps both in step.
+   */
+  const [live, setLive] = useState({ online: fleet.chargersOnline, reported: {} as Record<string, boolean> });
+  const online = live.online;
 
   /*
    * ADJUSTING STATE WHEN A PROP CHANGES, React's documented pattern for exactly this — not an
@@ -76,7 +83,7 @@ export function FleetStatus({ fleet }: { fleet: FleetSnapshot }) {
   if (seenFleet !== fleet) {
     setSeenFleet(fleet);
     setConnectors(fleet.connectorsByStatus);
-    setOnline(fleet.chargersOnline);
+    setLive({ online: fleet.chargersOnline, reported: {} });
   }
 
   /*
@@ -94,8 +101,15 @@ export function FleetStatus({ fleet }: { fleet: FleetSnapshot }) {
   });
 
   useSocketEvent<ChargerConnectivityEvent>('charger:connectivityChanged', (event) => {
-    // Connectivity IS a clean +1/-1: the event carries the new boolean and nothing else moves.
-    setOnline((current) => Math.max(0, Math.min(fleet.chargers, current + (event.isOnline ? 1 : -1))));
+    // Connectivity IS a clean +1/-1 once repeats are ignored: nothing else moves.
+    setLive((current) =>
+      current.reported[event.chargerId] === event.isOnline
+        ? current
+        : {
+            online: Math.max(0, Math.min(fleet.chargers, current.online + (event.isOnline ? 1 : -1))),
+            reported: { ...current.reported, [event.chargerId]: event.isOnline },
+          },
+    );
     setLiveNote(`A charger just went ${event.isOnline ? 'online' : 'offline'}`);
   });
 

@@ -19,12 +19,9 @@ function CreateStationContent() {
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-16">
+    <main className="page page-form">
       <header>
-        <p className="text-xs font-medium uppercase tracking-widest text-neutral-500">
-          EV-CMS
-        </p>
-        <h1 className="mt-1 text-2xl font-semibold">New station</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">New station</h1>
         <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
           {isPlatformAdmin
             ? 'A site belonging to the company you select.'

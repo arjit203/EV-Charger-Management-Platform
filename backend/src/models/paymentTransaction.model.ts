@@ -154,6 +154,13 @@ paymentTransactionSchema.index(
   },
 );
 
+/**
+ * "Does this session have a payment row?" — the settlement sweeper's `$lookup`, every 15s. The
+ * unique index above cannot serve it: it is PARTIAL (live statuses only) and a lookup's plain
+ * equality does not imply that filter, so each lookup scanned the collection.
+ */
+paymentTransactionSchema.index({ chargingSessionId: 1, status: 1 });
+
 /** "My payments, newest first." */
 paymentTransactionSchema.index({ userId: 1, createdAt: -1 });
 

@@ -184,8 +184,8 @@ function ChargeContent() {
   const { state } = useAsyncData(load);
 
   return (
-    <main className="mx-auto max-w-2xl px-6 py-12">
-      <h1 className="text-2xl font-semibold">Start charging</h1>
+    <main className="page page-detail page-flow">
+      <h1 className="text-2xl font-semibold tracking-tight">Start charging</h1>
       <p className="mt-2 text-sm text-neutral-500">
         Scan the code on the charger, or paste a connector id below. Not at a charger yet?{' '}
         <Link href="/map" className="font-medium text-[var(--accent)] underline underline-offset-4">
