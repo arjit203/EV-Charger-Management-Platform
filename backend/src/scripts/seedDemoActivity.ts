@@ -25,7 +25,7 @@
  * Safe to run against a demo database. It refuses to touch anything it did not create.
  */
 
-import { connectDatabase, disconnectDatabase } from '../config/db';
+import { disconnectDatabase } from '../config/db';
 import { Company } from '../models/company.model';
 import { Station } from '../models/station.model';
 import { Charger } from '../models/charger.model';
@@ -41,6 +41,7 @@ import { PaymentTransaction } from '../models/paymentTransaction.model';
 import { Complaint } from '../models/complaint.model';
 import { calculateAmountPaise } from '../utils/money';
 import { logger } from '../utils/logger';
+import { connectSeedTarget } from './seedTarget';
 
 const SCOPE = 'seed:activity';
 
@@ -67,7 +68,12 @@ function energyForSession(index: number): number {
 }
 
 async function main(): Promise<void> {
-  await connectDatabase();
+  // It had no database check at all: it wrote into whatever MONGODB_URI named.
+  const target = await connectSeedTarget(SCOPE, {
+    envKey: 'SEED_DEMO_PASSWORD',
+    value: process.env.SEED_DEMO_PASSWORD,
+  });
+  const productionPassword = target.productionPassword;
   logger.info(SCOPE, 'Seeding demo activity…');
 
   const companies = await Company.find({ status: 'active' });
@@ -86,11 +92,11 @@ async function main(): Promise<void> {
       user = await User.create({
         name: demo.name,
         email: demo.email,
-        passwordHash: await User.hashPassword(demo.password),
+        passwordHash: await User.hashPassword(productionPassword ?? demo.password),
         role: 'driver',
         status: 'active',
       });
-      logger.info(SCOPE, `  created driver ${demo.email} — password: ${demo.password}`);
+      logger.info(SCOPE, `  created driver ${demo.email}${productionPassword ? '' : ` — password: ${demo.password}`}`);
     }
 
     let vehicle = await Vehicle.findOne({ registrationNumber: demo.vehicle.registrationNumber });
@@ -321,7 +327,9 @@ async function main(): Promise<void> {
   }
 
   logger.info(SCOPE, `Done: ${drivers.length} drivers, ${sessionCount} sessions, ${readingCount} meter readings, ${complaintCount} complaints.`);
-  logger.warn(SCOPE, 'Demo passwords are intentionally weak. Never use this data in production.');
+  if (!target.isProduction) {
+    logger.warn(SCOPE, 'Demo passwords are intentionally weak. Never use this data in production.');
+  }
 
   await disconnectDatabase();
 }

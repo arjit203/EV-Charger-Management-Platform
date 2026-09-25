@@ -13,12 +13,11 @@
  * Idempotent: running it twice does not create a duplicate or change an existing password.
  */
 
-import mongoose from 'mongoose';
-
-import { connectDatabase, disconnectDatabase } from '../config/db';
+import { disconnectDatabase } from '../config/db';
 import { User } from '../models/user.model';
 import { ROLES } from '../constants/roles';
 import { logger } from '../utils/logger';
+import { connectSeedTarget } from './seedTarget';
 
 const SCOPE = 'seed:admin';
 
@@ -30,24 +29,15 @@ function arg(key: string, envKey: string, fallback: string): string {
 }
 
 async function main(): Promise<void> {
-  const connected = await connectDatabase();
-  if (!connected) {
-    logger.error(SCOPE, 'Could not connect to MongoDB. Check MONGODB_URI in backend/.env.');
-    process.exit(1);
-  }
-
-  // Guard rail: this cluster has held more than one project. A seed script must never
-  // run against the wrong database, so refuse rather than assume.
-  const dbName = mongoose.connection.name;
-  if (dbName !== 'ev_cms') {
-    logger.error(SCOPE, `Refusing to seed: connected to database "${dbName}", expected "ev_cms".`);
-    logger.error(SCOPE, 'Add /ev_cms to MONGODB_URI before the query string, then retry.');
-    await disconnectDatabase();
-    process.exit(1);
-  }
+  // Guard rail: this cluster holds more than one database. Decided from the URI before
+  // connecting — see seedTarget.ts. Production is opt-in and never uses a default password.
+  const target = await connectSeedTarget(SCOPE, {
+    envKey: 'SEED_ADMIN_PASSWORD',
+    value: arg('password', 'SEED_ADMIN_PASSWORD', ''),
+  });
 
   const email = arg('email', 'SEED_ADMIN_EMAIL', 'admin@evcms.local').toLowerCase();
-  const password = arg('password', 'SEED_ADMIN_PASSWORD', 'Admin@12345');
+  const password = target.productionPassword ?? arg('password', 'SEED_ADMIN_PASSWORD', 'Admin@12345');
   const name = arg('name', 'SEED_ADMIN_NAME', 'Platform Administrator');
 
   const existing = await User.findOne({ email }).select('_id role');
@@ -67,7 +57,9 @@ async function main(): Promise<void> {
     });
 
     logger.info(SCOPE, `Created super_admin "${email}".`);
-    logger.warn(SCOPE, `Password: ${password}  <-- change this after first login.`);
+    // There is no in-app password change, so this password is the one the account keeps.
+    if (target.isProduction) logger.info(SCOPE, 'Password: the one you supplied (not printed).');
+    else logger.warn(SCOPE, `Password: ${password}  (development only; there is no in-app password change).`);
   }
 
   await disconnectDatabase();

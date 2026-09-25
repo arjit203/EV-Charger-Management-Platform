@@ -58,9 +58,10 @@ export const env = {
   apiPrefix: optional('API_PREFIX', '/api/v1'),
 
   /** Allowed browser origins for CORS, parsed from a comma-separated list. */
+  // Trailing slashes stripped: browsers send `https://x.vercel.app`, people paste `https://x.vercel.app/`.
   corsOrigins: optional('CORS_ORIGIN', 'http://localhost:3000')
     .split(',')
-    .map((origin) => origin.trim())
+    .map((origin) => origin.trim().replace(/\/+$/, ''))
     .filter(Boolean),
 
   /**
@@ -124,6 +125,60 @@ export const env = {
   razorpayKeySecret: optional('RAZORPAY_KEY_SECRET', ''),
   razorpayWebhookSecret: optional('RAZORPAY_WEBHOOK_SECRET', ''),
 } as const;
+
+/* -------------------------------------------------------------------------- */
+/* Refuse unsafe configuration at boot                                         */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * A misconfigured deploy must fail in the Render log, not run. Each rule below was a silent
+ * failure before: a server that boots, answers, and is wrong. Messages name the problem and
+ * never print a value.
+ */
+const unsafe: string[] = [];
+
+// TEST MODE ONLY, in every environment: a live key would move real money.
+if (env.razorpayKeyId.startsWith('rzp_live_')) {
+  unsafe.push('RAZORPAY_KEY_ID is a LIVE key. EV-CMS runs Razorpay in test mode only - use an rzp_test_ key.');
+}
+
+if (env.isProduction) {
+  const database = /^mongodb(?:\+srv)?:\/\/[^/]+\/([^?]*)/.exec(env.mongodbUri)?.[1] ?? '';
+  if (!env.mongodbUri) {
+    unsafe.push('MONGODB_URI is not set.');
+  } else if (!database) {
+    unsafe.push('MONGODB_URI names no database, so the driver would silently use "test". Add /evcms_prod before the query string.');
+  } else if (database === 'ev_cms') {
+    unsafe.push('MONGODB_URI points at the DEVELOPMENT database "ev_cms". Production must use its own database.');
+  }
+
+  if (!process.env.CORS_ORIGIN?.trim()) {
+    unsafe.push('CORS_ORIGIN is not set, so it would default to http://localhost:3000. Set it to the deployed frontend origin.');
+  }
+  for (const origin of env.corsOrigins) {
+    if (!origin.startsWith('https://') || /localhost|127\.0\.0\.1/.test(origin)) {
+      unsafe.push(`CORS_ORIGIN entry "${origin}" is not an https production origin.`);
+    }
+  }
+
+  if (env.jwtSecret.length < 32) {
+    unsafe.push('JWT_SECRET is shorter than 32 characters. Generate a new random one for production.');
+  }
+
+  // Without BOTH, payments silently fall back to a stub whose signing secret is in the public
+  // source: anyone could sign their own "payment" and credit a wallet.
+  if (!env.razorpayKeyId || !env.razorpayKeySecret) {
+    unsafe.push('RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET are both required in production (stub payments are never allowed there).');
+  } else if (!env.razorpayKeyId.startsWith('rzp_test_')) {
+    unsafe.push('RAZORPAY_KEY_ID must be an rzp_test_ key.');
+  }
+}
+
+if (unsafe.length > 0) {
+  for (const problem of unsafe) logger.error(SCOPE, problem);
+  logger.error(SCOPE, 'Refusing to start with unsafe configuration.');
+  process.exit(1);
+}
 
 // Keep `required` referenced for use by later modules (JWT_SECRET in Module 1, etc.)
 export { required as requiredEnv };
