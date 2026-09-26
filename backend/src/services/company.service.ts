@@ -147,7 +147,7 @@ export async function updateCompany(
   const company = await Company.findByIdAndUpdate(
     companyId,
     { $set: input },
-    { new: true, runValidators: true },
+    { returnDocument: 'after', runValidators: true },
   );
 
   if (!company) {
@@ -179,7 +179,7 @@ export async function setCompanyStatus(
   const company = await Company.findByIdAndUpdate(
     companyId,
     { $set: { status } },
-    { new: true, runValidators: true },
+    { returnDocument: 'after', runValidators: true },
   );
 
   if (!company) {

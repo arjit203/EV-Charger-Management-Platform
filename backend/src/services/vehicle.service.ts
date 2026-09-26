@@ -68,7 +68,7 @@ export async function updateMyVehicle(
   const vehicle = await Vehicle.findOneAndUpdate(
     applyOwnerScope(actor, { _id: vehicleId }),
     { $set: input },
-    { new: true, runValidators: true },
+    { returnDocument: 'after', runValidators: true },
   );
 
   if (!vehicle) throw ApiError.notFound('Vehicle not found.');
@@ -89,7 +89,7 @@ export async function deactivateMyVehicle(
   const vehicle = await Vehicle.findOneAndUpdate(
     applyOwnerScope(actor, { _id: vehicleId }),
     { $set: { isActive: false } },
-    { new: true },
+    { returnDocument: 'after' },
   );
 
   if (!vehicle) throw ApiError.notFound('Vehicle not found.');

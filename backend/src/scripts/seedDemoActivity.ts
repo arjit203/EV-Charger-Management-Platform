@@ -125,7 +125,7 @@ async function main(): Promise<void> {
       const credited = await Wallet.findOneAndUpdate(
         { _id: wallet._id },
         { $inc: { balancePaise: topUp } },
-        { new: true },
+        { returnDocument: 'after' },
       );
       if (!credited) throw new Error(`Wallet for ${demo.email} disappeared mid-seed`);
       wallet = credited;
@@ -216,7 +216,7 @@ async function main(): Promise<void> {
             ? await Wallet.findOneAndUpdate(
                 { userId: driver.user._id, balancePaise: { $gte: amountPaise } },
                 { $inc: { balancePaise: -amountPaise } },
-                { new: true },
+                { returnDocument: 'after' },
               )
             : null;
           const paid = wallet !== null;

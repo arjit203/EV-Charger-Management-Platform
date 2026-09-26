@@ -199,7 +199,7 @@ export async function updateUser(
   const user = await User.findOneAndUpdate(
     { _id: userId, ...manageableUsersFilter(actor) },
     { $set: input },
-    { new: true, runValidators: true },
+    { returnDocument: 'after', runValidators: true },
   );
 
   if (!user) throw notFoundOrForbidden(actor);
@@ -229,7 +229,7 @@ export async function setUserStatus(
   const user = await User.findOneAndUpdate(
     { _id: userId, ...manageableUsersFilter(actor) },
     { $set: { status } },
-    { new: true, runValidators: true },
+    { returnDocument: 'after', runValidators: true },
   );
 
   if (!user) throw notFoundOrForbidden(actor);
@@ -262,7 +262,7 @@ export async function updateOwnProfile(
   const user = await User.findByIdAndUpdate(
     actor.id,
     { $set: input },
-    { new: true, runValidators: true },
+    { returnDocument: 'after', runValidators: true },
   );
 
   if (!user) throw ApiError.notFound('User not found.');

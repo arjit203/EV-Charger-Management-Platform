@@ -4,12 +4,15 @@
 > operators, stations, chargers and connectors, talks to chargers in real time over an OCPP 1.6J-style
 > WebSocket protocol, and meters, prices and bills each charging session.
 
-![Node.js](https://img.shields.io/badge/Node.js-20%2B-339933?logo=node.js&logoColor=white)
+![Node.js](https://img.shields.io/badge/Node.js-24-339933?logo=node.js&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![Express](https://img.shields.io/badge/Express-4-000000?logo=express&logoColor=white)
 ![MongoDB](https://img.shields.io/badge/MongoDB-Mongoose%209-47A248?logo=mongodb&logoColor=white)
 ![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=next.js&logoColor=white)
 ![OCPP](https://img.shields.io/badge/OCPP-1.6J--inspired-0A7EA4)
+
+**Live demo:** [evcms-chi.vercel.app](https://evcms-chi.vercel.app) · API [ev-cms-backend.onrender.com](https://ev-cms-backend.onrender.com/api/v1/health)
+(free tier: the first request after ~15 idle minutes takes up to a minute while the backend wakes). See [Deployment](#deployment).
 
 ---
 
@@ -23,6 +26,7 @@
 - [Repository layout](#repository-layout)
 - [Getting started](#getting-started)
 - [Testing](#testing)
+- [Deployment](#deployment)
 - [Demo walkthrough](#demo-walkthrough)
 - [API overview](#api-overview)
 - [Documentation](#documentation)
@@ -253,7 +257,7 @@ If the charger never confirms, rejects the start, disconnects, or reports a faul
 
 | Layer | Technology |
 |---|---|
-| Backend runtime | Node.js 20+, TypeScript 5, Express 4 |
+| Backend runtime | Node.js 24 (pinned 24.14.1), TypeScript 5, Express 4 |
 | Database | MongoDB (replica set required for transactions), Mongoose 9 |
 | Auth and security | `jsonwebtoken`, `bcryptjs`, `helmet`, `cors`, Zod 4 validation |
 | Charger channel | `ws` 8, OCPP-J framing (OCPP 1.6J-inspired action subset) |
@@ -310,7 +314,7 @@ EV-CMS/
 
 ### Prerequisites
 
-- **Node.js 20+** and npm
+- **Node.js 24** and npm. The backend pins `24.14.1` in `engines` (what Render uses); 20.19+ also runs locally.
 - **MongoDB**, local or Atlas. It **must be a replica set**, because wallet and payment operations use
   multi-document transactions. Atlas clusters are replica sets by default. A local `mongod` needs `--replSet`.
 
@@ -405,7 +409,8 @@ While the simulator is running, type a key to inject a fault:
 
 ### Demo logins
 
-Weak passwords on purpose. Never use this data in production.
+**Local development only.** Weak passwords on purpose. The production deployment is seeded with the same
+accounts but different, private passwords; the seed scripts refuse these ones there.
 
 | Role | Email | Password |
 |---|---|---|
@@ -449,6 +454,74 @@ npm run typecheck && npm run lint
 ```
 
 See [`tests/README.md`](tests/README.md) for the browser suites and the Razorpay-keys caveat.
+
+---
+
+## Deployment
+
+The live system runs on three managed services. The backend is one Node process serving REST, Socket.IO
+and the OCPP gateway on a single port, which is what lets it run as one Render web service.
+
+```mermaid
+flowchart TB
+    B["Browser"] -->|HTTPS| V["Vercel<br/>Next.js frontend<br/>evcms-chi.vercel.app"]
+    B -->|"HTTPS REST + WSS Socket.IO"| R
+    SIM["Charger simulator<br/>(or a real charge point)"] -->|"WSS OCPP 1.6J<br/>/ocpp/&lt;chargerId&gt;"| R
+    subgraph R["Render web service — ev-cms-backend.onrender.com"]
+        API["Express REST<br/>/api/v1"]
+        SIO["Socket.IO<br/>/socket.io"]
+        GW["OCPP gateway<br/>/ocpp"]
+    end
+    R -->|TLS| DB[("MongoDB Atlas<br/>evcms_prod")]
+    R -->|"test mode"| RZP["Razorpay"]
+```
+
+| Piece | Where | Configuration |
+|---|---|---|
+| Frontend | Vercel, root `frontend` | One variable: `NEXT_PUBLIC_API_BASE_URL=https://<backend>/api/v1`. It is baked in at build time; the Socket.IO URL is derived from it. |
+| Backend | Render web service, root `backend` | Build `npm ci --include=dev && npm run build` (the TypeScript toolchain is a dev dependency and Render builds with `NODE_ENV=production`). Start `node dist/server.js`. Health check `/api/v1/health` (503 until MongoDB connects). Node from `engines`. Build filter `backend/**`. |
+| Database | Atlas, same cluster as development | Separate database `evcms_prod` with its own user scoped to `readWrite` on it only. |
+| Payments | Razorpay | **Test mode only.** The key ID reaches the browser through the order response, never a frontend variable. |
+
+Backend variables set in Render: `NODE_ENV`, `MONGODB_URI`, `JWT_SECRET`, `CORS_ORIGIN`, `RAZORPAY_KEY_ID`,
+`RAZORPAY_KEY_SECRET`. `PORT` is provided by Render. Values live only in the dashboards, never in the repository.
+
+### Decisions worth knowing
+
+- **Development and production databases are separate.** Local development and every test suite use
+  `ev_cms` through `backend/.env`; the deployed backend uses `evcms_prod` through a different database user.
+  Neither user can touch the other database.
+- **The backend refuses to start with unsafe configuration.** With `NODE_ENV=production` it exits unless
+  `MONGODB_URI` names its own database (not `ev_cms`, not missing), `CORS_ORIGIN` lists only `https` origins,
+  `JWT_SECRET` is at least 32 characters and both Razorpay test keys are set. Without real keys the payment
+  provider would fall back to a stub whose signing secret is public, so production never allows the stub.
+  An `rzp_live_` key is refused in every environment.
+- **Seeding production is opt-in.** The seed scripts decide the target from the URI *before* connecting
+  (connecting alone would create the database and its indexes). `evcms_prod` needs `SEED_CONFIRM_DB=evcms_prod`
+  for that one command, is refused if `backend/.env` points at it, and requires strong passwords from the
+  shell that are never printed. The production URI is passed in the shell only.
+- **CORS is an exact allow-list, shared by REST and Socket.IO.** Only the production Vercel domain is allowed;
+  Vercel's per-deployment URLs are refused on purpose.
+- **Chargers connect through Render's normal HTTPS endpoint.** OCPP needs no special proxy setup: the
+  WebSocket upgrade on `/ocpp/<chargerId>` passes through Render as `wss://`, and the gateway authenticates each
+  charger with its own token (401 on a wrong one).
+- **Chargers are simulated.** `simulator/` speaks OCPP 1.6J to the production endpoint:
+  `npm run dev -- --charger=<ocppId> --url=wss://<backend>/ocpp`, with the token in `CHARGER_AUTH_TOKEN`.
+
+### Free-tier behaviour
+
+- The Render instance sleeps after ~15 minutes without traffic. The first request afterwards can take up to a
+  minute, and sleeping drops every OCPP and browser socket. A connected simulator's heartbeats keep it awake.
+- Every deploy restarts the process, which ends charges in progress (energy recorded so far is billed) and
+  briefly marks chargers offline until they reconnect. Auto-deploy is off; deploy when nobody is charging.
+- One instance only: the OCPP registry and Socket.IO rooms live in memory (see limitations below).
+
+### Verified in production
+
+A production smoke test covered: health and database separation, error responses without stack traces,
+CORS, security headers, sign-in and role limits, Socket.IO over WSS with live updates and reconnect, OCPP over
+WSS (boot, heartbeat, status, remote start and stop, meter values, wrong token refused), a real Razorpay test
+checkout credited exactly once, and a full charge billed at metered energy × tariff with one wallet debit.
 
 ---
 
@@ -514,7 +587,7 @@ Each of these was a deliberate scope decision. They are the obvious next steps f
 - **No API rate limiting.**
 - **No JWT revocation list.** Suspension takes effect immediately through the per-request user reload, but a stolen token stays valid until it expires.
 - **`MeterReading` grows without limit.** No TTL or rollup yet.
-- No containerisation or deployment configuration. The project runs as a local three-process setup.
+- **Deployed on free tiers** (Render + Vercel + Atlas), no containers. The backend sleeps after ~15 idle minutes, which drops charger and browser connections; see [Deployment](#deployment).
 
 **Protocol**
 - **OCPP 1.6J-inspired, not certified.** The frame envelope and action names follow the spec, but payloads are simplified. Only the 7 inbound actions and 2 outbound commands listed above are implemented. *Not implemented:* reservations, smart charging, `ChangeConfiguration`, firmware and diagnostics, local auth lists, OCPP 2.0.1.
